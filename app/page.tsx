@@ -7,7 +7,8 @@ import WelcomeScreen from '@/components/WelcomeScreen';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
-import type { SessionInfo, ServerMessage } from '@/lib/types';
+import type { SessionInfo, ServerMessage, TerminalSessionMeta } from '@/lib/types';
+import { saveSession } from '@/lib/db';
 
 // Dynamic import to avoid SSR issues with xterm
 const TerminalView = dynamic(() => import('@/components/TerminalView'), {
@@ -99,10 +100,11 @@ export default function Home() {
 
   // ── Session lifecycle handlers ──
 
-  const handleNewSession = useCallback(async () => {
-    await create();
+  // Use '__new__' as a signal to TerminalView to create (not attach)
+  const handleNewSession = useCallback(() => {
+    setActiveSessionId('__new__');
     setSidebarOpen(false);
-  }, [create]);
+  }, [setActiveSessionId]);
 
   const handleSelectSession = useCallback(
     (id: string) => {
@@ -140,11 +142,23 @@ export default function Home() {
   );
 
   const handleSessionCreated = useCallback(
-    (id: string, title: string) => {
-      updateTitle(id, title);
+    async (id: string, title: string) => {
+      // Server created the session — now save to IDB with server's real ID
+      const now = Date.now();
+      const meta: TerminalSessionMeta = {
+        id,
+        title: title || new Date(now).toLocaleString([], {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        }),
+        createdAt: now,
+        lastSeen: now,
+      };
+      await saveSession(meta);
+      await refresh();
+      setActiveSessionId(id);
       setAliveSessions((prev) => new Set(prev).add(id));
     },
-    [updateTitle],
+    [refresh, setActiveSessionId],
   );
 
   const handleSessionExited = useCallback((id: string) => {

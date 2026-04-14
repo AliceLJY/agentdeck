@@ -183,21 +183,22 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         ws.onopen = () => {
           reconnectAttemptsRef.current = 0;
 
-          if (currentSessionIdRef.current) {
-            // Attach to existing session
-            ws.send(
-              JSON.stringify({
-                type: 'attach',
-                sessionId: currentSessionIdRef.current,
-              }),
-            );
-          } else {
-            // Create new session
+          const sid = currentSessionIdRef.current;
+          if (!sid || sid === '__new__') {
+            // Create new session on server
             ws.send(
               JSON.stringify({
                 type: 'create',
                 cols: term.cols,
                 rows: term.rows,
+              }),
+            );
+          } else {
+            // Attach to existing server session
+            ws.send(
+              JSON.stringify({
+                type: 'attach',
+                sessionId: sid,
               }),
             );
           }

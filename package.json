@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "next build",
-    "start": "NODE_ENV=production tsx server.ts"
+    "start": "NODE_ENV=production tsx server.ts",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
     "@xterm/xterm": "^6.0.0",

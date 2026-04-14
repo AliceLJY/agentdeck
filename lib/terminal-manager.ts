@@ -35,17 +35,19 @@ class TerminalManager {
     }
 
     const now = Date.now();
-    const shell = 'claude';
+    const home = process.env.HOME || '/Users/USER';
+    const shell = `${home}/.local/bin/claude`;
 
     const ptyProcess = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: process.env.HOME || '/',
+      cwd: home,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
         FORCE_COLOR: '1',
+        PATH: `${home}/.local/bin:${home}/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
       } as Record<string, string>,
     });
 
