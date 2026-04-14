@@ -110,8 +110,9 @@ class TerminalManager {
     const now = Date.now();
 
     // Create detached tmux session running claude with correct env
+    // -c $HOME ensures claude starts in home dir, not the server's working dir
     const envCmd = `env PATH='${this.enrichedEnv.PATH}' TERM=xterm-256color FORCE_COLOR=1 HOME='${this.home}' ${claude}`;
-    this.tmuxExec(['new-session', '-d', '-s', tmuxName, '-x', String(cols), '-y', String(rows), envCmd]);
+    this.tmuxExec(['new-session', '-d', '-s', tmuxName, '-x', String(cols), '-y', String(rows), '-c', this.home, envCmd]);
 
     // Spawn PTY bridge
     const ptyProcess = this.spawnBridge(tmuxName, cols, rows);
