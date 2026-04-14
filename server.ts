@@ -3,7 +3,6 @@ import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
 import { handleWebSocket } from './lib/ws-handler';
-import { terminalManager } from './lib/terminal-manager';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
@@ -19,9 +18,7 @@ if (!CC_TERMINAL_TOKEN) {
   process.exit(1);
 }
 
-app.prepare().then(async () => {
-  // Recover tmux sessions from previous server run
-  await terminalManager.init();
+app.prepare().then(() => {
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl);
