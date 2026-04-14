@@ -5,6 +5,8 @@ import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
 import WelcomeScreen from '@/components/WelcomeScreen';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
+import FileUpload from '@/components/FileUpload';
+import DropZone from '@/components/DropZone';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
 import type { SessionInfo, ServerMessage, TerminalSessionMeta } from '@/lib/types';
@@ -181,6 +183,13 @@ export default function Home() {
     sendInputRef.current = sendFn;
   }, []);
 
+  // File upload: inject path into terminal
+  const handleFileUploaded = useCallback((filePath: string) => {
+    if (sendInputRef.current) {
+      sendInputRef.current(filePath);
+    }
+  }, []);
+
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
   return (
@@ -226,22 +235,31 @@ export default function Home() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="ml-2 lg:ml-0 text-sm font-medium truncate text-gray-700 dark:text-gray-200">
+          <span className="ml-2 lg:ml-0 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
             {activeSession?.title || 'CC Terminal'}
           </span>
+          {activeSessionId && activeSessionId !== '__new__' && token && (
+            <FileUpload
+              token={token}
+              onFileUploaded={handleFileUploaded}
+              disabled={!activeSessionId}
+            />
+          )}
         </div>
 
         {/* Terminal or Welcome */}
         <div className="flex-1 relative min-h-0">
           {activeSessionId && token ? (
-            <TerminalView
-              sessionId={activeSessionId}
-              token={token}
-              theme={resolved}
-              onSessionCreated={handleSessionCreated}
-              onSessionExited={handleSessionExited}
-              onInput={handleTerminalInput}
-            />
+            <DropZone token={token} onFileUploaded={handleFileUploaded}>
+              <TerminalView
+                sessionId={activeSessionId}
+                token={token}
+                theme={resolved}
+                onSessionCreated={handleSessionCreated}
+                onSessionExited={handleSessionExited}
+                onInput={handleTerminalInput}
+              />
+            </DropZone>
           ) : (
             <WelcomeScreen onNewSession={handleNewSession} />
           )}
