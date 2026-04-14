@@ -107,7 +107,7 @@ Session limits (in `lib/types.ts`):
 
 ## Acknowledgements
 
-Inspired by [Lody](https://github.com/nicepkg/lody) and [Happy](https://github.com/slopus/happy).
+Thanks to [Happy](https://github.com/slopus/happy) for the inspiration.
 
 ## License
 

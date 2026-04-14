@@ -101,7 +101,7 @@ Session 参数（`lib/types.ts`）：
 
 ## 致谢
 
-灵感来源：[Lody](https://github.com/nicepkg/lody)、[Happy](https://github.com/slopus/happy)
+感谢 [Happy](https://github.com/slopus/happy) 的启发。
 
 ## 许可
 
