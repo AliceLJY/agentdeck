@@ -252,6 +252,7 @@ export default function Home() {
           {activeSessionId && token ? (
             <DropZone token={token} onFileUploaded={handleFileUploaded}>
               <TerminalView
+                key={activeSessionId}
                 sessionId={activeSessionId}
                 token={token}
                 theme={resolved}

@@ -63,13 +63,12 @@ class TerminalManager {
       dataDisposable: { dispose: () => {} }, // placeholder, set below
     };
 
-    // Initially detached: buffer all output
+    // Always buffer output for session history replay on reattach
     session.dataDisposable = ptyProcess.onData((data: string) => {
       session.lastActivity = Date.now();
+      session.buffer.write(data);
       if (session.ws && session.ws.readyState === WebSocket.OPEN) {
         session.ws.send(JSON.stringify({ type: 'output', data }));
-      } else {
-        session.buffer.write(data);
       }
     });
 
@@ -102,11 +101,11 @@ class TerminalManager {
   attach(sessionId: string, ws: WebSocket): void {
     const session = this.getSession(sessionId);
 
-    // Replay buffered output
+    // Replay full buffered output (up to 256KB of recent history)
+    // Don't clear — buffer is persistent scrollback for future reattach
     const buffered = session.buffer.read();
     if (buffered.length > 0) {
       ws.send(JSON.stringify({ type: 'output', data: buffered }));
-      session.buffer.clear();
     }
 
     // Set ws reference -- the onData handler already checks session.ws
