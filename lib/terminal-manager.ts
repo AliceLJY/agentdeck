@@ -1,58 +1,124 @@
 import * as pty from 'node-pty';
+import * as path from 'path';
 import { WebSocket } from 'ws';
+import { execFileSync, spawnSync } from 'child_process';
 import { RingBuffer } from './ring-buffer';
+import { SessionStore } from './session-store';
 import { SessionInfo, MAX_SESSIONS, IDLE_TIMEOUT, DEFAULT_COLS, DEFAULT_ROWS } from './types';
+
+/** All our tmux sessions use a dedicated socket to avoid polluting user's tmux */
+const TMUX_SOCKET = 'ccrt';
+const TMUX_PREFIX = 'ccrt';
 
 interface TerminalSession {
   id: string;
-  pty: pty.IPty;
+  tmuxName: string;
+  pty: pty.IPty | null;          // null when recovered but client hasn't attached yet
   ws: WebSocket | null;
   buffer: RingBuffer;
   createdAt: number;
   lastActivity: number;
   title: string;
   alive: boolean;
-  /** Disposable handle for pty.onData listener */
-  dataDisposable: pty.IDisposable;
+  dataDisposable: pty.IDisposable | null;
 }
 
 class TerminalManager {
   private sessions: Map<string, TerminalSession> = new Map();
   private cleanupTimer: ReturnType<typeof setInterval>;
+  private store: SessionStore;
+  private tmuxPath: string;
+  private home: string;
+  private tmuxConf: string;
+  private enrichedEnv: Record<string, string>;
 
   constructor() {
-    // Every 5 minutes, kill idle sessions (no WS attached + no activity for 30 min)
+    this.home = process.env.HOME || '/Users/USER';
+    this.store = new SessionStore();
+    this.tmuxPath = this.findTmux();
+    this.tmuxConf = path.join(process.cwd(), 'lib', 'tmux.conf');
+    this.enrichedEnv = {
+      ...(process.env as Record<string, string>),
+      TERM: 'xterm-256color',
+      FORCE_COLOR: '1',
+      PATH: `${this.home}/.local/bin:${this.home}/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
+    };
+
     this.cleanupTimer = setInterval(() => this.cleanupIdle(), 5 * 60 * 1000);
   }
+
+  // ─── Startup Recovery ───
+
+  async init(): Promise<void> {
+    try {
+      const output = this.tmuxExec(['list-sessions', '-F', '#{session_name}']);
+      if (!output.trim()) return;
+
+      const savedMeta = this.store.loadAll();
+      let recovered = 0;
+
+      for (const tmuxName of output.trim().split('\n')) {
+        if (!tmuxName.startsWith(`${TMUX_PREFIX}-`)) continue;
+        const id = tmuxName.replace(`${TMUX_PREFIX}-`, '');
+
+        // Check if pane process is still alive
+        if (!this.isPaneAlive(tmuxName)) {
+          console.log(`[cc-terminal] Removing dead tmux session: ${tmuxName}`);
+          this.tmuxExecSafe(['kill-session', '-t', tmuxName]);
+          this.store.remove(id);
+          continue;
+        }
+
+        const meta = savedMeta[id];
+        this.sessions.set(id, {
+          id,
+          tmuxName,
+          pty: null,
+          ws: null,
+          buffer: new RingBuffer(),
+          createdAt: meta?.createdAt || Date.now(),
+          lastActivity: Date.now(),
+          title: meta?.title || new Date().toLocaleTimeString(),
+          alive: true,
+          dataDisposable: null,
+        });
+
+        recovered++;
+        console.log(`[cc-terminal] Recovered: ${tmuxName} → "${meta?.title || '(untitled)'}"`);
+      }
+
+      if (recovered > 0) {
+        console.log(`[cc-terminal] Recovered ${recovered} session(s) from tmux`);
+      }
+    } catch {
+      console.log('[cc-terminal] No existing tmux sessions found');
+    }
+  }
+
+  // ─── Session Lifecycle ───
 
   create(id: string, cols: number = DEFAULT_COLS, rows: number = DEFAULT_ROWS): SessionInfo {
     if (this.sessions.size >= MAX_SESSIONS) {
       throw new Error(`Maximum sessions (${MAX_SESSIONS}) reached. Close an existing session first.`);
     }
-
     if (this.sessions.has(id)) {
       throw new Error(`Session ${id} already exists.`);
     }
 
+    const tmuxName = `${TMUX_PREFIX}-${id}`;
+    const claude = `${this.home}/.local/bin/claude`;
     const now = Date.now();
-    const home = process.env.HOME || '/Users/USER';
-    const shell = `${home}/.local/bin/claude`;
 
-    const ptyProcess = pty.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols,
-      rows,
-      cwd: home,
-      env: {
-        ...process.env,
-        TERM: 'xterm-256color',
-        FORCE_COLOR: '1',
-        PATH: `${home}/.local/bin:${home}/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
-      } as Record<string, string>,
-    });
+    // Create detached tmux session running claude with correct env
+    const envCmd = `env PATH='${this.enrichedEnv.PATH}' TERM=xterm-256color FORCE_COLOR=1 HOME='${this.home}' ${claude}`;
+    this.tmuxExec(['new-session', '-d', '-s', tmuxName, '-x', String(cols), '-y', String(rows), envCmd]);
+
+    // Spawn PTY bridge
+    const ptyProcess = this.spawnBridge(tmuxName, cols, rows);
 
     const session: TerminalSession = {
       id,
+      tmuxName,
       pty: ptyProcess,
       ws: null,
       buffer: new RingBuffer(),
@@ -60,86 +126,70 @@ class TerminalManager {
       lastActivity: now,
       title: new Date(now).toLocaleTimeString(),
       alive: true,
-      dataDisposable: { dispose: () => {} }, // placeholder, set below
+      dataDisposable: null,
     };
 
-    // Always buffer output for session history replay on reattach
-    session.dataDisposable = ptyProcess.onData((data: string) => {
-      session.lastActivity = Date.now();
-      session.buffer.write(data);
-      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({ type: 'output', data }));
-      }
-    });
-
-    // Handle PTY process exit
-    ptyProcess.onExit(({ exitCode }) => {
-      console.log(`[cc-terminal] PTY exited for session ${id} with code ${exitCode}`);
-      session.alive = false;
-
-      // Notify attached WS
-      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-        session.ws.send(JSON.stringify({
-          type: 'exit',
-          sessionId: id,
-          code: exitCode,
-        }));
-      }
-
-      // Clean up after a short delay to let exit message be sent
-      setTimeout(() => {
-        this.sessions.delete(id);
-      }, 1000);
-    });
-
+    this.setupPtyHandlers(session);
     this.sessions.set(id, session);
-    console.log(`[cc-terminal] Session created: ${id} (${this.sessions.size}/${MAX_SESSIONS})`);
+    this.store.save(id, { title: session.title, createdAt: now });
 
+    console.log(`[cc-terminal] Created: ${id} → tmux:${tmuxName} (${this.sessions.size}/${MAX_SESSIONS})`);
     return this.toSessionInfo(session);
   }
 
   attach(sessionId: string, ws: WebSocket): void {
     const session = this.getSession(sessionId);
 
-    // Replay full buffered output (up to 1MB of recent history)
-    // Don't clear — buffer is persistent scrollback for future reattach
+    // Lazy PTY: spawn bridge if not yet connected (recovered session)
+    if (!session.pty) {
+      const ptyProcess = this.spawnBridge(session.tmuxName, DEFAULT_COLS, DEFAULT_ROWS);
+      session.pty = ptyProcess;
+      this.setupPtyHandlers(session);
+      console.log(`[cc-terminal] Spawned PTY bridge for recovered session: ${sessionId}`);
+    }
+
+    // Replay ring buffer
     const buffered = session.buffer.read();
     if (buffered.length > 0) {
       ws.send(JSON.stringify({ type: 'output', data: buffered }));
     }
 
-    // Set ws reference -- the onData handler already checks session.ws
     session.ws = ws;
     session.lastActivity = Date.now();
   }
 
   detach(sessionId: string): void {
     const session = this.sessions.get(sessionId);
-    if (!session) return; // silently ignore if session doesn't exist
-
+    if (!session) return;
     session.ws = null;
     session.lastActivity = Date.now();
-    // From now on, onData handler will route output to ring buffer
   }
 
   write(sessionId: string, data: string): void {
     const session = this.getSession(sessionId);
 
-    // Auto-detect session title from first non-empty user input
+    // Auto-detect title from first input
     if (session.title === new Date(session.createdAt).toLocaleTimeString()) {
       const trimmed = data.replace(/[\r\n]/g, '').trim();
       if (trimmed.length > 0) {
         session.title = trimmed.length > 50 ? trimmed.slice(0, 50) : trimmed;
+        this.store.updateTitle(sessionId, session.title);
       }
     }
 
     session.lastActivity = Date.now();
-    session.pty.write(data);
+    if (session.pty) {
+      session.pty.write(data);
+    }
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
     const session = this.getSession(sessionId);
-    session.pty.resize(cols, rows);
+    if (session.pty) {
+      session.pty.resize(cols, rows);
+    }
+    // Also resize tmux window so it matches
+    this.tmuxExecSafe(['resize-window', '-t', session.tmuxName, '-x', String(cols), '-y', String(rows)]);
     session.lastActivity = Date.now();
   }
 
@@ -147,66 +197,150 @@ class TerminalManager {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
-    console.log(`[cc-terminal] Killing session: ${sessionId}`);
+    console.log(`[cc-terminal] Killing: ${sessionId}`);
 
-    try {
-      session.pty.kill();
-    } catch {
-      // PTY may already be dead
+    if (session.pty) {
+      try { session.pty.kill(); } catch {}
+    }
+    if (session.dataDisposable) {
+      session.dataDisposable.dispose();
     }
 
+    this.tmuxExecSafe(['kill-session', '-t', session.tmuxName]);
     session.alive = false;
-    session.dataDisposable.dispose();
+    this.store.remove(sessionId);
     this.sessions.delete(sessionId);
   }
 
   list(): SessionInfo[] {
-    const result: SessionInfo[] = Array.from(this.sessions.values()).map(
-      (session) => this.toSessionInfo(session),
-    );
-    // Sort by createdAt descending (newest first)
-    result.sort((a, b) => b.createdAt - a.createdAt);
-    return result;
+    return Array.from(this.sessions.values())
+      .map((s) => this.toSessionInfo(s))
+      .sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  getSessionTitle(sessionId: string): string {
-    const session = this.sessions.get(sessionId);
-    return session ? session.title : '';
+  getSessionTitle(id: string): string {
+    return this.sessions.get(id)?.title || '';
   }
 
-  hasSession(sessionId: string): boolean {
-    return this.sessions.has(sessionId);
+  hasSession(id: string): boolean {
+    return this.sessions.has(id);
   }
 
-  private getSession(sessionId: string): TerminalSession {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      throw new Error(`Session ${sessionId} not found.`);
+  // ─── PTY Bridge ───
+
+  private spawnBridge(tmuxName: string, cols: number, rows: number): pty.IPty {
+    return pty.spawn(this.tmuxPath, ['-L', TMUX_SOCKET, '-u', 'attach-session', '-t', tmuxName], {
+      name: 'xterm-256color',
+      cols,
+      rows,
+      cwd: this.home,
+      env: this.enrichedEnv,
+    });
+  }
+
+  private setupPtyHandlers(session: TerminalSession): void {
+    if (!session.pty) return;
+
+    session.dataDisposable = session.pty.onData((data: string) => {
+      session.lastActivity = Date.now();
+      // Strip Device Attributes responses that leak when tmux queries xterm.js
+      // DA1: \x1b[?...c  DA2: \x1b[>...c  DA3: \x1b[=...c
+      const cleaned = data
+        .replace(/\x1b\[\?[\d;]*c/g, '')
+        .replace(/\x1b\[>[\d;]*c/g, '')
+        .replace(/\x1b\[=[\d;]*c/g, '');
+      if (cleaned.length === 0) return;
+      session.buffer.write(cleaned);
+      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(JSON.stringify({ type: 'output', data: cleaned }));
+      }
+    });
+
+    session.pty.onExit(({ exitCode }) => {
+      console.log(`[cc-terminal] PTY bridge exited: ${session.id} (code ${exitCode})`);
+
+      const tmuxAlive = this.isTmuxSessionAlive(session.tmuxName);
+      const paneAlive = tmuxAlive && this.isPaneAlive(session.tmuxName);
+
+      if (paneAlive) {
+        // tmux session still alive — bridge can reconnect later
+        console.log(`[cc-terminal] tmux:${session.tmuxName} still alive, bridge can reconnect`);
+        session.pty = null;
+        session.dataDisposable = null;
+      } else {
+        // Claude exited — session is dead
+        console.log(`[cc-terminal] Session ${session.id} is dead`);
+        session.alive = false;
+
+        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+          session.ws.send(JSON.stringify({
+            type: 'exit', sessionId: session.id, code: exitCode,
+          }));
+        }
+
+        if (tmuxAlive) {
+          this.tmuxExecSafe(['kill-session', '-t', session.tmuxName]);
+        }
+        this.store.remove(session.id);
+        setTimeout(() => this.sessions.delete(session.id), 1000);
+      }
+    });
+  }
+
+  // ─── tmux Helpers ───
+
+  private findTmux(): string {
+    const candidates = ['/opt/homebrew/bin/tmux', '/usr/local/bin/tmux', '/usr/bin/tmux'];
+    for (const p of candidates) {
+      if (spawnSync('test', ['-x', p]).status === 0) return p;
     }
-    if (!session.alive) {
-      throw new Error(`Session ${sessionId} has exited.`);
-    }
+    const result = spawnSync('which', ['tmux']);
+    if (result.status === 0) return result.stdout.toString().trim();
+    throw new Error('tmux not found. Install via: brew install tmux');
+  }
+
+  private tmuxExec(args: string[]): string {
+    return execFileSync(
+      this.tmuxPath,
+      ['-L', TMUX_SOCKET, '-f', this.tmuxConf, ...args],
+      { env: this.enrichedEnv as NodeJS.ProcessEnv, timeout: 5000 },
+    ).toString();
+  }
+
+  private tmuxExecSafe(args: string[]): string {
+    try { return this.tmuxExec(args); } catch { return ''; }
+  }
+
+  private isTmuxSessionAlive(tmuxName: string): boolean {
+    try { this.tmuxExec(['has-session', '-t', tmuxName]); return true; } catch { return false; }
+  }
+
+  private isPaneAlive(tmuxName: string): boolean {
+    try {
+      return this.tmuxExec(['list-panes', '-t', tmuxName, '-F', '#{pane_dead}']).trim() === '0';
+    } catch { return false; }
+  }
+
+  // ─── Utilities ───
+
+  private getSession(id: string): TerminalSession {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error(`Session ${id} not found.`);
+    if (!session.alive) throw new Error(`Session ${id} has exited.`);
     return session;
   }
 
-  private toSessionInfo(session: TerminalSession): SessionInfo {
+  private toSessionInfo(s: TerminalSession): SessionInfo {
     return {
-      id: session.id,
-      title: session.title,
-      createdAt: session.createdAt,
-      lastActivity: session.lastActivity,
-      attached: session.ws !== null,
-      alive: session.alive,
+      id: s.id, title: s.title, createdAt: s.createdAt,
+      lastActivity: s.lastActivity, attached: s.ws !== null, alive: s.alive,
     };
   }
 
   private cleanupIdle(): void {
     const now = Date.now();
-    const entries = Array.from(this.sessions.entries());
-    for (let i = 0; i < entries.length; i++) {
-      const [id, session] = entries[i];
-      // Only clean up sessions that are detached (no WS) and idle past timeout
-      if (!session.ws && (now - session.lastActivity) > IDLE_TIMEOUT) {
+    for (const [id, s] of this.sessions.entries()) {
+      if (!s.ws && (now - s.lastActivity) > IDLE_TIMEOUT) {
         console.log(`[cc-terminal] Cleaning up idle session: ${id}`);
         this.kill(id);
       }
@@ -215,10 +349,12 @@ class TerminalManager {
 
   destroy(): void {
     clearInterval(this.cleanupTimer);
-    const ids = Array.from(this.sessions.keys());
-    for (let i = 0; i < ids.length; i++) {
-      this.kill(ids[i]);
+    // Kill bridges but leave tmux alive for recovery
+    for (const s of this.sessions.values()) {
+      if (s.pty) { try { s.pty.kill(); } catch {} }
+      if (s.dataDisposable) s.dataDisposable.dispose();
     }
+    this.sessions.clear();
   }
 }
 
