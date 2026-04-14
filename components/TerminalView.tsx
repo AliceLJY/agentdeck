@@ -115,13 +115,16 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         if (disposed) return;
 
-        // Detect mobile for font size + renderer
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
-          || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+        // Detect touch devices for renderer (WebGL garbles text on iOS/iPadOS Safari)
+        // iPadOS 13+ reports "Macintosh" in UA, so we use maxTouchPoints to catch it
+        // Real Macs have maxTouchPoints=0, iPads have 5
+        const isTouchDevice = /iPhone|iPod|Android/i.test(navigator.userAgent)
+          || navigator.maxTouchPoints > 1;
+        const isSmallScreen = window.innerWidth < 768;
 
         term = new Terminal({
           cursorBlink: true,
-          fontSize: isMobile ? 14 : 16,
+          fontSize: isSmallScreen ? 14 : 16,
           fontFamily: 'Menlo, Monaco, "Courier New", monospace',
           allowProposedApi: true,
           theme: theme === 'dark' ? darkTheme : lightTheme,
@@ -133,8 +136,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         term.loadAddon(fitAddon);
         term.loadAddon(new WebLinksAddon());
 
-        // WebGL renderer — desktop only (causes garbled text on Mobile Safari/iOS)
-        if (!isMobile) {
+        // WebGL renderer — non-touch devices only (causes garbled text on iOS/iPadOS Safari)
+        if (!isTouchDevice) {
           try {
             const { WebglAddon } = await import('@xterm/addon-webgl');
             const webgl = new WebglAddon();
