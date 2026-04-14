@@ -51,8 +51,9 @@ export default function Home() {
     setIsTouchDevice(navigator.maxTouchPoints > 0);
   }, []);
 
-  // Reconcile sessions with server on mount
-  useEffect(() => {
+  // Reconcile client IDB with server sessions (removes stale entries after restart)
+  const reconcileRef = useRef<(() => void) | null>(null);
+  reconcileRef.current = () => {
     if (!token) return;
 
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -75,11 +76,18 @@ export default function Home() {
           setAliveSessions(alive);
 
           // Remove stale sessions from IDB that server doesn't know about
+          let hadStale = false;
           sessions.forEach((s) => {
             if (!serverIds.has(s.id)) {
               remove(s.id);
+              hadStale = true;
             }
           });
+
+          // If all sessions were stale and active session is dead, reset to welcome
+          if (hadStale && activeSessionId && !serverIds.has(activeSessionId)) {
+            setActiveSessionId(null);
+          }
         }
       } catch {
         // Ignore parse errors
@@ -90,15 +98,20 @@ export default function Home() {
     ws.onerror = () => {
       ws.close();
     };
+  };
 
-    return () => {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
-    };
-    // Only run on mount when token becomes available
+  // Run reconciliation on mount
+  useEffect(() => {
+    reconcileRef.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  // Also reconcile when user returns to tab (catches server restart while away)
+  useEffect(() => {
+    const onFocus = () => reconcileRef.current?.();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   // ── Session lifecycle handlers ──
 
@@ -163,13 +176,19 @@ export default function Home() {
     [refresh, setActiveSessionId],
   );
 
-  const handleSessionExited = useCallback((id: string) => {
+  const handleSessionExited = useCallback(async (id: string) => {
     setAliveSessions((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
-  }, []);
+    // Remove dead session from IDB so it doesn't linger in sidebar
+    await remove(id);
+    // If the exited session was the active one, reset to welcome screen
+    if (activeSessionId === id) {
+      setActiveSessionId(null);
+    }
+  }, [activeSessionId, remove, setActiveSessionId]);
 
   // Handle key bar input by forwarding to TerminalView
   const handleKeyBarInput = useCallback((data: string) => {

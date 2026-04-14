@@ -231,6 +231,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
               case 'error':
                 term.write(`\r\n\x1b[31m[Error: ${msg.message}]\x1b[0m\r\n`);
+                // If session not found (server restarted), notify parent to clean up
+                if (msg.message.includes('not found') && currentSessionIdRef.current) {
+                  onSessionExited?.(currentSessionIdRef.current);
+                }
                 break;
 
               case 'sessions':

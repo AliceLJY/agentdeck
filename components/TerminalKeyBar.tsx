@@ -11,7 +11,7 @@ const KEYS: Record<string, string> = {
   Esc: '\x1b',
   Tab: '\t',
   'Ctrl+C': '\x03',
-  'Ctrl+D': '\x04',
+  Clear: '\x0c',    // Ctrl+L — clear screen, much more useful than Ctrl+D
 };
 
 const ARROW_KEYS: Record<string, string> = {
