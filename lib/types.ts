@@ -50,6 +50,6 @@ export interface TerminalSessionState {
 
 export const MAX_SESSIONS = 10;
 export const IDLE_TIMEOUT = 30 * 60 * 1000;       // 30 minutes
-export const RING_BUFFER_SIZE = 1024 * 1024;       // 1MB — Claude Code output can be verbose
+export const RING_BUFFER_SIZE = 5 * 1024 * 1024;   // 5MB — covers full TUI history for cross-device replay
 export const DEFAULT_COLS = 80;
 export const DEFAULT_ROWS = 30;

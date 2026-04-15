@@ -219,7 +219,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
             switch (msg.type) {
               case 'output':
-                term.write(msg.data);
+                // Strip alt screen switch sequences so xterm stays in normal buffer,
+                // enabling browser-native scrollback through TUI history.
+                term.write(msg.data.replace(/\x1b\[\?(1049|1047|47)[hl]/g, ''));
                 break;
 
               case 'created':

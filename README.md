@@ -97,7 +97,7 @@ Session limits (in `lib/types.ts`):
 |---|---|---|
 | `MAX_SESSIONS` | 10 | Maximum concurrent PTY sessions |
 | `IDLE_TIMEOUT` | 30 min | Auto-kill detached idle sessions |
-| `RING_BUFFER_SIZE` | 1 MB | Output history per session |
+| `RING_BUFFER_SIZE` | 5 MB | Output history per session (replayed on attach / reconnect) |
 
 ## Tech Stack
 

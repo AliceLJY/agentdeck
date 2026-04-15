@@ -91,7 +91,7 @@ Session 参数（`lib/types.ts`）：
 |---|---|---|
 | `MAX_SESSIONS` | 10 | 最大并发 PTY 数 |
 | `IDLE_TIMEOUT` | 30 分钟 | 空闲 Session 自动回收 |
-| `RING_BUFFER_SIZE` | 1 MB | 每个 Session 的输出历史缓冲 |
+| `RING_BUFFER_SIZE` | 5 MB | 每个 Session 的输出历史缓冲（attach / 重连时 replay） |
 
 ## 技术栈
 
