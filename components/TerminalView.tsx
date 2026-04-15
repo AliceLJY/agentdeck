@@ -158,6 +158,36 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         termRef.current = term;
         fitAddonRef.current = fitAddon;
 
+        // ─── iOS IME fix ───
+        // xterm 6.0.0 on iOS 26 drops most 'input' events (its value-diff logic is
+        // unreliable in this environment — English 5-char bursts only send 1 char,
+        // Chinese punctuation goes missing). Attach our own capture-phase listener
+        // on xterm's hidden textarea that sends e.data directly to the WebSocket,
+        // clears the textarea to prevent value accumulation, and stops the event
+        // from reaching xterm's own handler.
+        const helperTa = containerRef.current?.querySelector<HTMLTextAreaElement>(
+          '.xterm-helper-textarea',
+        );
+        if (helperTa && !helperTa.dataset.imePatched) {
+          helperTa.dataset.imePatched = 'true';
+          helperTa.addEventListener(
+            'input',
+            (ev) => {
+              const ie = ev as InputEvent;
+              // Only intercept text insertion; deletions flow via keydown (Backspace)
+              // which xterm handles correctly.
+              if (ie.inputType !== 'insertText' || !ie.data) return;
+              const ws = wsRef.current;
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'input', data: ie.data }));
+              }
+              helperTa.value = '';
+              ev.stopImmediatePropagation();
+            },
+            true,
+          );
+        }
+
         // ─── WebSocket Connection ───
         connectWebSocket(term, fitAddon);
 

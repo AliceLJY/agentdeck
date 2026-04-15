@@ -2,8 +2,31 @@ import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer, WebSocket } from 'ws';
+import { readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
 import { handleWebSocket } from './lib/ws-handler';
 import { terminalManager } from './lib/terminal-manager';
+
+// Next.js auto-loads .env.local into the client bundle but NOT into this
+// custom server process. Without this, dev runs fail with
+// "CC_TERMINAL_TOKEN is not set" unless the user manually exports first.
+(() => {
+  const envPath = resolve(process.cwd(), '.env.local');
+  if (!existsSync(envPath)) return;
+  try {
+    for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq < 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (!key || key in process.env) continue;
+      process.env[key] = trimmed.slice(eq + 1).trim();
+    }
+  } catch {
+    // Ignore unreadable .env.local
+  }
+})();
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
