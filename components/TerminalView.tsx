@@ -9,7 +9,8 @@ import {
 } from 'react';
 import type { Terminal as XTerminal } from '@xterm/xterm';
 import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
-import type { ServerMessage } from '@/lib/types';
+import type { ServerMessage, TerminalCreateOptions } from '@/lib/types';
+import type { HistoryBackend } from '@/lib/backends';
 
 // ─── Terminal Themes ───
 
@@ -49,9 +50,10 @@ const lightTheme = {
 
 interface TerminalViewProps {
   sessionId: string | null;
+  createOptions?: TerminalCreateOptions | null;
   token: string;
   theme: 'light' | 'dark';
-  onSessionCreated?: (id: string, title: string) => void;
+  onSessionCreated?: (id: string, title: string, backend: HistoryBackend) => void;
   onSessionExited?: (id: string) => void;
   onInput?: (sendFn: (data: string) => void) => void;
 }
@@ -64,7 +66,7 @@ export interface TerminalViewHandle {
 
 const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   function TerminalView(
-    { sessionId, token, theme, onSessionCreated, onSessionExited, onInput },
+    { sessionId, createOptions, token, theme, onSessionCreated, onSessionExited, onInput },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -124,7 +126,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         term = new Terminal({
           cursorBlink: true,
-          fontSize: isSmallScreen ? 14 : 16,
+          fontSize: isSmallScreen ? 18 : 16,
+          lineHeight: isSmallScreen ? 1.25 : 1,
           fontFamily: 'Menlo, Monaco, "Courier New", monospace',
           allowProposedApi: true,
           theme: theme === 'dark' ? darkTheme : lightTheme,
@@ -223,13 +226,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           reconnectAttemptsRef.current = 0;
 
           const sid = currentSessionIdRef.current;
-          if (!sid || sid === '__new__') {
+          if (!sid || sid.startsWith('__new__')) {
             // Create new session on server
             ws.send(
               JSON.stringify({
                 type: 'create',
                 cols: term.cols,
                 rows: term.rows,
+                backend: createOptions?.backend,
+                cwd: createOptions?.cwd,
+                resumeSessionId: createOptions?.resumeSessionId,
+                title: createOptions?.title,
               }),
             );
           } else {
@@ -256,7 +263,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
               case 'created':
                 currentSessionIdRef.current = msg.sessionId;
-                onSessionCreated?.(msg.sessionId, msg.title);
+                onSessionCreated?.(msg.sessionId, msg.title, msg.backend);
                 break;
 
               case 'exit':

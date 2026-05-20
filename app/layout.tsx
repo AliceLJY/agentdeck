@@ -28,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <meta name="ws-token" content={process.env.CC_TERMINAL_TOKEN || ''} />
         <script
           dangerouslySetInnerHTML={{

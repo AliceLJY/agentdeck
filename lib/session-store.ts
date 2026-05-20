@@ -1,7 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { HistoryBackend } from './backends';
 
 interface SessionMeta {
+  backend?: HistoryBackend;
   title: string;
   createdAt: number;
 }

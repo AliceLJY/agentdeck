@@ -30,7 +30,7 @@ import { terminalManager } from './lib/terminal-manager';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = '0.0.0.0';
-const port = parseInt(process.env.PORT || '3099', 10);
+const port = parseInt(process.env.PORT || '3109', 10);
 
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
@@ -44,6 +44,7 @@ if (!CC_TERMINAL_TOKEN) {
 
 app.prepare().then(async () => {
   await terminalManager.init();
+  const handleUpgrade = app.getUpgradeHandler();
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl);
@@ -79,8 +80,10 @@ app.prepare().then(async () => {
 
     // In dev mode, let Next.js handle HMR WebSocket upgrades
     if (dev) {
-      // Don't destroy the socket -- Next.js HMR needs it
-      // Next.js will handle /_next/webpack-hmr upgrades internally
+      handleUpgrade(req, socket, head).catch((err) => {
+        console.error('[cc-terminal] Next.js upgrade error:', err);
+        socket.destroy();
+      });
       return;
     }
 

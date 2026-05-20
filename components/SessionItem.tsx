@@ -1,6 +1,7 @@
 'use client';
 
 import type { TerminalSessionMeta } from '@/lib/types';
+import { getBackendDisplay, normalizeBackend } from '@/lib/backends';
 
 interface SessionItemProps {
   session: TerminalSessionMeta;
@@ -32,16 +33,19 @@ export default function SessionItem({
   onSelect,
   onDelete,
 }: SessionItemProps) {
+  const backend = normalizeBackend(session.backend);
+  const display = getBackendDisplay(backend);
+
   return (
     <div
       onClick={onSelect}
       className={`group flex items-center gap-2 px-3 py-3 cursor-pointer rounded-lg mx-2 mb-0.5
-        transition-colors relative
+        transition-colors relative border-l-4
         ${
           isActive
-            ? 'bg-blue-50 dark:bg-blue-900/30 border-l-3 border-blue-500'
-            : 'hover:bg-gray-100 dark:hover:bg-gray-800 border-l-3 border-transparent'
-        }`}
+            ? display.selectedClass
+            : 'hover:bg-gray-100 dark:hover:bg-gray-800 border-transparent'
+        } ${display.accentClass}`}
     >
       {/* Status dot */}
       <div
@@ -55,8 +59,13 @@ export default function SessionItem({
 
       {/* Session info */}
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate text-gray-800 dark:text-gray-200">
-          {session.title}
+        <div className="flex items-center gap-2">
+          <div className="text-sm font-medium truncate text-gray-800 dark:text-gray-200">
+            {session.title}
+          </div>
+          <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${display.badgeClass}`}>
+            {display.label}
+          </span>
         </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           {formatRelativeTime(session.lastSeen)}

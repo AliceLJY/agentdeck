@@ -3,13 +3,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
-import WelcomeScreen from '@/components/WelcomeScreen';
+import HistoryHome from '@/components/HistoryHome';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
 import FileUpload from '@/components/FileUpload';
 import DropZone from '@/components/DropZone';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
-import type { SessionInfo, ServerMessage, TerminalSessionMeta } from '@/lib/types';
+import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
+import type {
+  SessionInfo,
+  ServerMessage,
+  TerminalCreateOptions,
+  TerminalSessionMeta,
+} from '@/lib/types';
 import { saveSession } from '@/lib/db';
 
 // Dynamic import to avoid SSR issues with xterm
@@ -34,6 +40,7 @@ export default function Home() {
   const [token, setToken] = useState<string>('');
   const [aliveSessions, setAliveSessions] = useState<Set<string>>(new Set());
   const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const [createOptions, setCreateOptions] = useState<TerminalCreateOptions | null>(null);
 
   // Ref to the TerminalView's sendInput function
   const sendInputRef = useRef<((data: string) => void) | null>(null);
@@ -116,8 +123,9 @@ export default function Home() {
   // ── Session lifecycle handlers ──
 
   // Use '__new__' as a signal to TerminalView to create (not attach)
-  const handleNewSession = useCallback(() => {
-    setActiveSessionId('__new__');
+  const handleNewSession = useCallback((options?: TerminalCreateOptions) => {
+    setCreateOptions(options || null);
+    setActiveSessionId(`__new__:${Date.now()}`);
     setSidebarOpen(false);
   }, [setActiveSessionId]);
 
@@ -157,11 +165,13 @@ export default function Home() {
   );
 
   const handleSessionCreated = useCallback(
-    async (id: string, title: string) => {
+    async (id: string, title: string, backendValue: HistoryBackend) => {
       // Server created the session — now save to IDB with server's real ID
       const now = Date.now();
+      const backend = normalizeBackend(backendValue);
       const meta: TerminalSessionMeta = {
         id,
+        backend,
         title: title || new Date(now).toLocaleString([], {
           month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
         }),
@@ -171,6 +181,7 @@ export default function Home() {
       await saveSession(meta);
       await refresh();
       setActiveSessionId(id);
+      setCreateOptions(null);
       setAliveSessions((prev) => new Set(prev).add(id));
     },
     [refresh, setActiveSessionId],
@@ -210,13 +221,14 @@ export default function Home() {
   }, []);
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const activeBackend = activeSession ? getBackendDisplay(normalizeBackend(activeSession.backend)) : null;
 
   return (
     <div className="h-dvh flex overflow-hidden bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
       {/* Sidebar overlay backdrop (mobile) */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/30 z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -225,7 +237,6 @@ export default function Home() {
       <div
         className={`
           fixed inset-y-0 left-0 z-50 w-[280px] transform transition-transform duration-200
-          lg:relative lg:translate-x-0 lg:z-0
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
@@ -248,16 +259,31 @@ export default function Home() {
         <div className="h-12 flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors lg:hidden"
+            className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            title="Live terminals"
           >
             <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="ml-2 lg:ml-0 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
+          <button
+            onClick={() => setActiveSessionId(null)}
+            className="ml-1 p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            title="Projects"
+          >
+            <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h6l2 2h10v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+            </svg>
+          </button>
+          <span className="ml-2 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
             {activeSession?.title || 'CC Terminal'}
           </span>
-          {activeSessionId && activeSessionId !== '__new__' && token && (
+          {activeBackend && (
+            <span className={`mr-2 shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${activeBackend.badgeClass}`}>
+              {activeBackend.label}
+            </span>
+          )}
+          {activeSessionId && !activeSessionId.startsWith('__new__') && token && (
             <FileUpload
               token={token}
               onFileUploaded={handleFileUploaded}
@@ -273,6 +299,7 @@ export default function Home() {
               <TerminalView
                 key={activeSessionId}
                 sessionId={activeSessionId}
+                createOptions={createOptions}
                 token={token}
                 theme={resolved}
                 onSessionCreated={handleSessionCreated}
@@ -281,7 +308,7 @@ export default function Home() {
               />
             </DropZone>
           ) : (
-            <WelcomeScreen onNewSession={handleNewSession} />
+            <HistoryHome token={token} onNewTerminal={handleNewSession} />
           )}
         </div>
 

@@ -10,8 +10,9 @@ interface TerminalKeyBarProps {
 const KEYS: Record<string, string> = {
   Esc: '\x1b',
   Tab: '\t',
+  Enter: '\r',
+  Clear: '\x15',    // Ctrl+U — clear the current input line
   'Ctrl+C': '\x03',
-  Clear: '\x0c',    // Ctrl+L — clear screen, much more useful than Ctrl+D
 };
 
 const ARROW_KEYS: Record<string, string> = {
@@ -23,33 +24,10 @@ const ARROW_KEYS: Record<string, string> = {
 
 export default function TerminalKeyBar({ onInput, visible }: TerminalKeyBarProps) {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
-  const [ctrlActive, setCtrlActive] = useState(false);
 
   useEffect(() => {
     setIsTouchDevice(navigator.maxTouchPoints > 0);
   }, []);
-
-  // When Ctrl toggle is active, intercept keyboard input
-  useEffect(() => {
-    if (!ctrlActive) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.length === 1) {
-        e.preventDefault();
-        e.stopPropagation();
-        // Compute Ctrl code: A=1, B=2, ... Z=26
-        const upper = e.key.toUpperCase();
-        const code = upper.charCodeAt(0) - 64;
-        if (code >= 1 && code <= 26) {
-          onInput(String.fromCharCode(code));
-        }
-        setCtrlActive(false);
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown, true);
-    return () => document.removeEventListener('keydown', handleKeyDown, true);
-  }, [ctrlActive, onInput]);
 
   const handleKey = useCallback(
     (data: string) => {
@@ -57,10 +35,6 @@ export default function TerminalKeyBar({ onInput, visible }: TerminalKeyBarProps
     },
     [onInput],
   );
-
-  const handleCtrlToggle = useCallback(() => {
-    setCtrlActive((prev) => !prev);
-  }, []);
 
   // Only render on touch devices when visible
   if (!isTouchDevice || !visible) return null;
@@ -93,24 +67,6 @@ export default function TerminalKeyBar({ onInput, visible }: TerminalKeyBarProps
           {label}
         </button>
       ))}
-
-      {/* Ctrl toggle */}
-      <button
-        onTouchStart={(e) => {
-          e.preventDefault();
-          handleCtrlToggle();
-        }}
-        className={`flex-1 min-h-[44px] flex items-center justify-center rounded-lg
-          text-xs font-medium border select-none transition-colors
-          ${
-            ctrlActive
-              ? 'bg-blue-500 dark:bg-blue-600 text-white border-blue-600 dark:border-blue-500'
-              : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 active:bg-gray-300 dark:active:bg-gray-600'
-          }`}
-        style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
-      >
-        Ctrl
-      </button>
 
       {/* Arrow keys */}
       {Object.entries(ARROW_KEYS).map(([label, seq]) => (

@@ -1,4 +1,5 @@
 import type { TerminalSessionMeta } from './types';
+import { normalizeBackend } from './backends';
 
 const DB_NAME = 'cc-remote-term';
 const DB_VERSION = 1;
@@ -25,7 +26,10 @@ export async function saveSession(meta: TerminalSessionMeta): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(meta);
+    tx.objectStore(STORE_NAME).put({
+      ...meta,
+      backend: normalizeBackend(meta.backend),
+    });
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -43,7 +47,11 @@ export async function listSessions(): Promise<TerminalSessionMeta[]> {
     request.onsuccess = () => {
       const cursor = request.result;
       if (cursor) {
-        results.push(cursor.value as TerminalSessionMeta);
+        const value = cursor.value as TerminalSessionMeta;
+        results.push({
+          ...value,
+          backend: normalizeBackend(value.backend),
+        });
         cursor.continue();
       } else {
         resolve(results);

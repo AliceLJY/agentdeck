@@ -2,9 +2,22 @@ import * as pty from 'node-pty';
 import * as path from 'path';
 import { WebSocket } from 'ws';
 import { execFileSync, spawnSync } from 'child_process';
+import { existsSync } from 'fs';
+import {
+  buildBackendCommand,
+  normalizeBackend,
+  type HistoryBackend,
+} from './backends';
 import { RingBuffer } from './ring-buffer';
 import { SessionStore } from './session-store';
-import { SessionInfo, MAX_SESSIONS, IDLE_TIMEOUT, DEFAULT_COLS, DEFAULT_ROWS } from './types';
+import {
+  SessionInfo,
+  MAX_SESSIONS,
+  IDLE_TIMEOUT,
+  DEFAULT_COLS,
+  DEFAULT_ROWS,
+  TerminalCreateOptions,
+} from './types';
 
 /** All our tmux sessions use a dedicated socket to avoid polluting user's tmux */
 const TMUX_SOCKET = 'ccrt';
@@ -12,6 +25,7 @@ const TMUX_PREFIX = 'ccrt';
 
 interface TerminalSession {
   id: string;
+  backend: HistoryBackend;
   tmuxName: string;
   pty: pty.IPty | null;          // null when recovered but client hasn't attached yet
   ws: WebSocket | null;
@@ -70,8 +84,10 @@ class TerminalManager {
         }
 
         const meta = savedMeta[id];
+        const backend = normalizeBackend(meta?.backend);
         this.sessions.set(id, {
           id,
+          backend,
           tmuxName,
           pty: null,
           ws: null,
@@ -84,7 +100,7 @@ class TerminalManager {
         });
 
         recovered++;
-        console.log(`[cc-terminal] Recovered: ${tmuxName} → "${meta?.title || '(untitled)'}"`);
+        console.log(`[cc-terminal] Recovered: ${tmuxName} (${backend}) → "${meta?.title || '(untitled)'}"`);
       }
 
       if (recovered > 0) {
@@ -97,7 +113,12 @@ class TerminalManager {
 
   // ─── Session Lifecycle ───
 
-  create(id: string, cols: number = DEFAULT_COLS, rows: number = DEFAULT_ROWS): SessionInfo {
+  create(
+    id: string,
+    cols: number = DEFAULT_COLS,
+    rows: number = DEFAULT_ROWS,
+    options: TerminalCreateOptions = {},
+  ): SessionInfo {
     if (this.sessions.size >= MAX_SESSIONS) {
       throw new Error(`Maximum sessions (${MAX_SESSIONS}) reached. Close an existing session first.`);
     }
@@ -106,35 +127,45 @@ class TerminalManager {
     }
 
     const tmuxName = `${TMUX_PREFIX}-${id}`;
-    const claude = `${this.home}/.local/bin/claude`;
     const now = Date.now();
+    const cwd = this.resolveCwd(options.cwd);
+    const backend = normalizeBackend(options.backend);
+    const title = this.resolveTitle(options.title, now);
+    const resumeId = this.resolveResumeId(options.resumeSessionId);
+    const backendExecutable = this.findBackendExecutable(backend);
+    const backendArgs = buildBackendCommand({
+      backend,
+      executable: backendExecutable,
+      cwd,
+      resumeSessionId: resumeId,
+    });
 
-    // Create detached tmux session running claude with correct env
-    // -c $HOME ensures claude starts in home dir, not the server's working dir
-    const envCmd = `env PATH='${this.enrichedEnv.PATH}' TERM=xterm-256color FORCE_COLOR=1 HOME='${this.home}' ${claude}`;
-    this.tmuxExec(['new-session', '-d', '-s', tmuxName, '-x', String(cols), '-y', String(rows), '-c', this.home, envCmd]);
+    // Create detached tmux session running the selected CLI with correct env.
+    const envCmd = `env PATH=${shellQuote(this.enrichedEnv.PATH)} TERM=xterm-256color FORCE_COLOR=1 HOME=${shellQuote(this.home)} ${backendArgs.map(shellQuote).join(' ')}`;
+    this.tmuxExec(['new-session', '-d', '-s', tmuxName, '-x', String(cols), '-y', String(rows), '-c', cwd, envCmd]);
 
     // Spawn PTY bridge
     const ptyProcess = this.spawnBridge(tmuxName, cols, rows);
 
     const session: TerminalSession = {
       id,
+      backend,
       tmuxName,
       pty: ptyProcess,
       ws: null,
       buffer: new RingBuffer(),
       createdAt: now,
       lastActivity: now,
-      title: new Date(now).toLocaleTimeString(),
+      title,
       alive: true,
       dataDisposable: null,
     };
 
     this.setupPtyHandlers(session);
     this.sessions.set(id, session);
-    this.store.save(id, { title: session.title, createdAt: now });
+    this.store.save(id, { backend: session.backend, title: session.title, createdAt: now });
 
-    console.log(`[cc-terminal] Created: ${id} → tmux:${tmuxName} (${this.sessions.size}/${MAX_SESSIONS})`);
+    console.log(`[cc-terminal] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd} (${this.sessions.size}/${MAX_SESSIONS})`);
     return this.toSessionInfo(session);
   }
 
@@ -333,9 +364,50 @@ class TerminalManager {
 
   private toSessionInfo(s: TerminalSession): SessionInfo {
     return {
-      id: s.id, title: s.title, createdAt: s.createdAt,
+      id: s.id, backend: s.backend, title: s.title, createdAt: s.createdAt,
       lastActivity: s.lastActivity, attached: s.ws !== null, alive: s.alive,
     };
+  }
+
+  private findBackendExecutable(backend: HistoryBackend): string {
+    if (backend === 'codex') {
+      return this.findExecutable('codex', [
+        '/opt/homebrew/bin/codex',
+        '/usr/local/bin/codex',
+        path.join(this.home, '.local', 'bin', 'codex'),
+      ]);
+    }
+
+    return this.findExecutable('claude', [
+      path.join(this.home, '.local', 'bin', 'claude'),
+      '/opt/homebrew/bin/claude',
+      '/usr/local/bin/claude',
+    ]);
+  }
+
+  private findExecutable(name: string, candidates: string[]): string {
+    for (const p of candidates) {
+      if (spawnSync('test', ['-x', p]).status === 0) return p;
+    }
+    const result = spawnSync('which', [name], { env: this.enrichedEnv as NodeJS.ProcessEnv });
+    if (result.status === 0) return result.stdout.toString().trim();
+    throw new Error(`${name} not found in PATH`);
+  }
+
+  private resolveCwd(cwd: string | undefined): string {
+    if (!cwd || !path.isAbsolute(cwd) || !existsSync(cwd)) return this.home;
+    return cwd;
+  }
+
+  private resolveResumeId(resumeSessionId: string | undefined): string | null {
+    if (!resumeSessionId) return null;
+    return /^[A-Za-z0-9_-]+$/.test(resumeSessionId) ? resumeSessionId : null;
+  }
+
+  private resolveTitle(title: string | undefined, createdAt: number): string {
+    const trimmed = title?.replace(/\s+/g, ' ').trim();
+    if (!trimmed) return new Date(createdAt).toLocaleTimeString();
+    return trimmed.length > 50 ? trimmed.slice(0, 50) : trimmed;
   }
 
   private cleanupIdle(): void {
@@ -360,3 +432,7 @@ class TerminalManager {
 }
 
 export const terminalManager = new TerminalManager();
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}

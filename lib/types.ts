@@ -1,8 +1,9 @@
 // ─── WebSocket Protocol ───
+import type { HistoryBackend } from './backends';
 
 // Client -> Server (JSON)
 export type ClientMessage =
-  | { type: 'create'; cols?: number; rows?: number }
+  | ({ type: 'create'; cols?: number; rows?: number } & TerminalCreateOptions)
   | { type: 'attach'; sessionId: string }
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
@@ -11,7 +12,7 @@ export type ClientMessage =
 
 // Server -> Client (JSON)
 export type ServerMessage =
-  | { type: 'created'; sessionId: string; title: string }
+  | { type: 'created'; sessionId: string; backend: HistoryBackend; title: string }
   | { type: 'output'; data: string }
   | { type: 'exit'; sessionId: string; code: number }
   | { type: 'error'; message: string }
@@ -19,6 +20,7 @@ export type ServerMessage =
 
 export interface SessionInfo {
   id: string;
+  backend: HistoryBackend;
   title: string;
   createdAt: number;
   lastActivity: number;
@@ -30,15 +32,24 @@ export interface SessionInfo {
 
 export interface TerminalSessionMeta {
   id: string;                 // matches server session ID
+  backend: HistoryBackend;
   title: string;
   createdAt: number;
   lastSeen: number;           // last time client interacted
+}
+
+export interface TerminalCreateOptions {
+  backend?: HistoryBackend;
+  cwd?: string;
+  resumeSessionId?: string;
+  title?: string;
 }
 
 // ─── Terminal Manager Internal Types ───
 
 export interface TerminalSessionState {
   id: string;
+  backend: HistoryBackend;
   title: string;
   createdAt: number;
   lastActivity: number;

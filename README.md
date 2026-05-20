@@ -15,7 +15,7 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 - **Dark/Light theme** — Follows system preference, toggleable in sidebar
 - **Token auth** — Simple token-based authentication to protect your terminal
 - **Auto-start** — Ships with a launchd plist for macOS auto-start on boot
-- **Single port** — HTTP + WebSocket on one port (default 3099), simple firewall setup
+- **Single port** — HTTP + WebSocket on one port (default 3109), simple firewall setup
 
 ## Architecture
 
@@ -61,17 +61,17 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3099?token=YOUR_TOKEN` in your browser.
+Open `http://localhost:3109?token=YOUR_TOKEN` in your browser.
 
 ### Remote Access (Tailscale)
 
 If you have [Tailscale](https://tailscale.com/) installed, the server auto-detects your Tailscale IP on startup:
 
 ```
-[cc-terminal] Tailscale: http://100.x.x.x:3099
+[cc-terminal] Tailscale: http://100.x.x.x:3109
 ```
 
-Access from any device on your Tailnet: `http://100.x.x.x:3099?token=YOUR_TOKEN`
+Access from any device on your Tailnet: `http://100.x.x.x:3109?token=YOUR_TOKEN`
 
 ### Auto-start (macOS launchd)
 
@@ -88,7 +88,7 @@ launchctl load ~/Library/LaunchAgents/com.cc-remote-term.web.plist
 | Environment Variable | Default | Description |
 |---|---|---|
 | `CC_TERMINAL_TOKEN` | (required) | Auth token for WebSocket connections |
-| `PORT` | `3099` | Server port |
+| `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
 
 Session limits (in `lib/types.ts`):

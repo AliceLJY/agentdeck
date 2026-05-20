@@ -15,7 +15,7 @@
 - **深色/浅色主题** — 跟随系统，侧边栏可切换
 - **Token 认证** — 简单 token 保护你的终端
 - **开机自启** — 附带 macOS launchd 配置，重启电脑自动恢复服务
-- **单端口** — HTTP + WebSocket 共用一个端口（默认 3099）
+- **单端口** — HTTP + WebSocket 共用一个端口（默认 3109）
 
 ## 架构
 
@@ -57,17 +57,17 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3099?token=你的TOKEN`
+浏览器打开 `http://localhost:3109?token=你的TOKEN`
 
 ### 远程访问（Tailscale）
 
 安装了 [Tailscale](https://tailscale.com/) 的话，启动时会自动检测 Tailscale IP：
 
 ```
-[cc-terminal] Tailscale: http://100.x.x.x:3099
+[cc-terminal] Tailscale: http://100.x.x.x:3109
 ```
 
-在 Tailnet 内任何设备访问：`http://100.x.x.x:3099?token=你的TOKEN`
+在 Tailnet 内任何设备访问：`http://100.x.x.x:3109?token=你的TOKEN`
 
 ### 开机自启（macOS launchd）
 
@@ -82,7 +82,7 @@ launchctl load ~/Library/LaunchAgents/com.cc-remote-term.web.plist
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
 | `CC_TERMINAL_TOKEN` | （必填） | WebSocket 认证 token |
-| `PORT` | `3099` | 服务端口 |
+| `PORT` | `3109` | 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 使用优化构建 |
 
 Session 参数（`lib/types.ts`）：

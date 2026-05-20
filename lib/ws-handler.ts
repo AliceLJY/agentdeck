@@ -21,13 +21,19 @@ export function handleWebSocket(ws: WebSocket): void {
           const cols = msg.cols || DEFAULT_COLS;
           const rows = msg.rows || DEFAULT_ROWS;
 
-          const info = terminalManager.create(id, cols, rows);
+          const info = terminalManager.create(id, cols, rows, {
+            backend: msg.backend,
+            cwd: msg.cwd,
+            resumeSessionId: msg.resumeSessionId,
+            title: msg.title,
+          });
           terminalManager.attach(id, ws);
           currentSessionId = id;
 
           send(ws, {
             type: 'created',
             sessionId: id,
+            backend: info.backend,
             title: info.title,
           });
 

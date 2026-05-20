@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { normalizeBackend } from '@/lib/backends';
 import type { TerminalSessionMeta } from '@/lib/types';
 import {
   saveSession,
@@ -18,7 +19,10 @@ export function useTerminalSessions() {
   const refresh = useCallback(async () => {
     try {
       const all = await listSessions();
-      setSessions(all);
+      setSessions(all.map((session) => ({
+        ...session,
+        backend: normalizeBackend(session.backend),
+      })));
     } catch (err) {
       console.error('[cc-terminal] Failed to load sessions from IDB:', err);
     }
@@ -34,6 +38,7 @@ export function useTerminalSessions() {
     const now = Date.now();
     const meta: TerminalSessionMeta = {
       id,
+      backend: 'claude',
       title: new Date(now).toLocaleString([], {
         month: 'short',
         day: 'numeric',
