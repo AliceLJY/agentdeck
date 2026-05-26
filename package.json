@@ -1,6 +1,6 @@
 {
-  "name": "cc-terminal",
-  "version": "0.1.0",
+  "name": "cc-remote-term",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "tsx server.ts",
