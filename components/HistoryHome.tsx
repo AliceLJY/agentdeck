@@ -450,12 +450,13 @@ function TranscriptPane({
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center gap-3">
         <button
           onClick={onClose}
-          className="h-9 w-9 shrink-0 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-50 dark:hover:bg-gray-900 dark:hover:text-gray-100 md:hidden"
-          title="Back"
+          className="shrink-0 flex items-center gap-1 h-9 pl-1.5 pr-3 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-900 dark:hover:text-gray-100 md:hidden"
+          title="Back to list"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
+          <span className="text-sm font-medium">Back</span>
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
