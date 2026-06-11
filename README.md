@@ -11,7 +11,7 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 - **Two backends, one UI** — Spawn a Claude Code session or a Codex session from the same browser; each session is tagged with its backend (blue for Claude, emerald for Codex)
 - **History browser** — Cross-backend history view: browse every Claude Code and Codex session that exists on your disk, side by side, and resume any of them in one click
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
-- **Multi-session** — Click "+" to spawn unlimited sessions, switch freely between them
+- **Multi-session** — Click "+" to spawn up to 10 concurrent sessions, switch freely between them
 - **tmux-backed persistence** — Sessions survive server restarts; the PTY lives in tmux, the WebSocket just attaches to it
 - **Session ring buffer** — 5 MB of output per session is replayed on reconnect, so switching devices doesn't lose context
 - **File upload** — Drag & drop files or click the paperclip button to send files to the running agent
@@ -77,7 +77,7 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3109?token=YOUR_TOKEN` in your browser. The token is saved in your browser, so afterwards you can open the page without `?token=`. Opening with no token shows a login prompt. The sidebar's "+" button opens a backend picker (Claude / Codex).
+Open `http://localhost:3109?token=YOUR_TOKEN` in your browser. The token is saved in your browser, so afterwards you can open the page without `?token=`. Opening with no token shows a login prompt. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Codex filter selects which backend new terminals start with.
 
 ### Remote Access (Tailscale)
 
@@ -138,7 +138,7 @@ Session limits (in `lib/types.ts`):
 
 - **Frontend**: Next.js 16 (App Router), React 19, Tailwind CSS 4, xterm.js 6
 - **Backend**: Custom Node.js HTTP server, WebSocket (ws), node-pty, tmux (for session persistence)
-- **Storage**: IndexedDB (client-side session list); session metadata persisted in `data/sessions.json`
+- **Storage**: IndexedDB (client-side session list); session metadata persisted in `~/.cc-remote-term-sessions.json`
 
 ## Acknowledgements
 

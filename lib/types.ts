@@ -16,7 +16,8 @@ export type ServerMessage =
   | { type: 'output'; data: string }
   | { type: 'exit'; sessionId: string; code: number }
   | { type: 'error'; message: string }
-  | { type: 'sessions'; list: SessionInfo[] };
+  | { type: 'sessions'; list: SessionInfo[] }
+  | { type: 'taken_over' };
 
 export interface SessionInfo {
   id: string;

@@ -282,6 +282,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               case 'sessions':
                 // Session list is handled by the parent component
                 break;
+
+              case 'taken_over':
+                term.write('\r\n\x1b[33m[This session was taken over by another device. This view is now read-only — reattach to take it back.]\x1b[0m\r\n');
+                break;
             }
           } catch {
             // Ignore unparseable messages

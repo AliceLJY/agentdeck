@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { HistoryBackend, HistoryBackendFilter } from './backends';
 
@@ -266,38 +266,72 @@ export async function buildCodexHistoryIndex(
   const limit = clampLimit(options.limit);
   const candidates = await listCodexSessionCandidates(sessionsRootDir);
   const indexEntries = await readCodexSessionIndex(indexFile);
-  const sessionsById = new Map<string, ClaudeHistorySession>();
 
+  // Deduplicate by sessionId (a session can span multiple rollout files),
+  // keeping the most recently modified file. Only the file HEAD is read here,
+  // so this stays cheap even with thousands of multi-MB transcripts.
+  const headBySession = new Map<
+    string,
+    { candidate: CodexSessionCandidate; cwd: string; createdAt: string }
+  >();
   for (const candidate of candidates) {
-    const { session } = await parseCodexSessionWithMessages(candidate, indexEntries);
-    const existing = sessionsById.get(session.sessionId);
-    if (!existing || Date.parse(session.updatedAt) > Date.parse(existing.updatedAt)) {
-      sessionsById.set(session.sessionId, session);
+    const head = await readCodexSessionHead(candidate.filePath);
+    const sessionId = head.sessionId || candidate.sessionId;
+    const existing = headBySession.get(sessionId);
+    if (!existing || candidate.mtimeMs > existing.candidate.mtimeMs) {
+      headBySession.set(sessionId, { candidate, cwd: head.cwd, createdAt: head.createdAt });
     }
   }
 
-  const allSessions = Array.from(sessionsById.values());
+  // Build the FULL project list from lightweight metadata (every session counts).
   const projects = new Map<string, ProjectAccumulator>();
-  for (const session of allSessions) {
-    const project = projects.get(session.projectId) || {
+  const ranked: Array<{
+    candidate: CodexSessionCandidate;
+    projectId: string;
+    updatedAtMs: number;
+  }> = [];
+  for (const [sessionId, info] of headBySession) {
+    const cwd = info.cwd || fallbackCwd(sessionId);
+    const projectId = projectIdFromCwd(cwd);
+    const indexEntry = indexEntries.get(sessionId) || indexEntries.get(info.candidate.sessionId);
+    const indexUpdatedMs = indexEntry?.updatedAt ? Date.parse(indexEntry.updatedAt) : NaN;
+    // session_index.updated_at can lag behind the actual transcript; take the
+    // most recent of (index time, file mtime) so a stale index entry can't bump
+    // a recently-active session out of the limited window selected below.
+    const updatedAtMs = Number.isFinite(indexUpdatedMs)
+      ? Math.max(indexUpdatedMs, info.candidate.mtimeMs)
+      : info.candidate.mtimeMs;
+
+    const project = projects.get(projectId) || {
       backend: 'codex' as const,
-      id: session.projectId,
-      name: session.projectName,
-      cwd: session.cwd,
+      id: projectId,
+      name: projectNameFromCwd(cwd, projectId),
+      cwd,
       sessionCount: 0,
       updatedAtMs: 0,
     };
     project.sessionCount += 1;
-    project.name = session.projectName;
-    project.cwd = session.cwd;
-    project.updatedAtMs = Math.max(project.updatedAtMs, Date.parse(session.updatedAt) || 0);
-    projects.set(session.projectId, project);
+    project.name = projectNameFromCwd(cwd, projectId);
+    project.cwd = cwd;
+    project.updatedAtMs = Math.max(project.updatedAtMs, updatedAtMs);
+    projects.set(projectId, project);
+
+    ranked.push({ candidate: info.candidate, projectId, updatedAtMs });
   }
 
-  const sessions = allSessions
-    .filter((session) => !options.projectId || session.projectId === options.projectId)
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+  // Only the most-recent N sessions actually shown get a full parse (the
+  // expensive step), scoped to a project when requested. limit now bounds cost.
+  const scoped = ranked
+    .filter((item) => !options.projectId || item.projectId === options.projectId)
+    .sort((a, b) => b.updatedAtMs - a.updatedAtMs)
     .slice(0, limit);
+
+  const sessions: ClaudeHistorySession[] = [];
+  for (const item of scoped) {
+    const { session } = await parseCodexSessionWithMessages(item.candidate, indexEntries);
+    sessions.push(session);
+  }
+  sessions.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 
   return {
     projects: Array.from(projects.values())
@@ -414,6 +448,44 @@ async function listCodexSessionCandidates(rootDir: string): Promise<CodexSession
 
   await walk(rootDir);
   return candidates;
+}
+
+// Cheap metadata read: a Codex session's `session_meta` is the first JSONL line,
+// so we only need the file head (cwd / id / timestamp) to build the project list
+// and pick which sessions to fully parse — reading multi-MB transcripts in full
+// just to learn cwd is what made the codex/all index O(all sessions) and slow.
+async function readCodexSessionHead(
+  filePath: string,
+): Promise<{ sessionId: string; cwd: string; createdAt: string }> {
+  const result = { sessionId: '', cwd: '', createdAt: '' };
+  let buf = '';
+  try {
+    const stream = createReadStream(filePath, { encoding: 'utf8', start: 0, end: 32 * 1024 });
+    for await (const chunk of stream) {
+      buf += chunk;
+    }
+  } catch {
+    return result;
+  }
+
+  for (const line of buf.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let event: any;
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue; // skip the partial last line cut off by the 32KB window
+    }
+    if (event.type === 'session_meta' && event.payload && typeof event.payload === 'object') {
+      const payload = event.payload as Record<string, unknown>;
+      if (typeof payload.id === 'string') result.sessionId = payload.id;
+      if (typeof payload.cwd === 'string') result.cwd = payload.cwd;
+      if (typeof payload.timestamp === 'string') result.createdAt = payload.timestamp;
+      return result;
+    }
+  }
+  return result;
 }
 
 async function readCodexSessionIndex(indexFile: string): Promise<Map<string, CodexIndexEntry>> {

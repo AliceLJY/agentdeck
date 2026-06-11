@@ -44,7 +44,7 @@ export function handleWebSocket(ws: WebSocket): void {
         case 'attach': {
           // Detach current session if any
           if (currentSessionId) {
-            terminalManager.detach(currentSessionId);
+            terminalManager.detach(currentSessionId, ws);
           }
 
           terminalManager.attach(msg.sessionId, ws);
@@ -59,7 +59,7 @@ export function handleWebSocket(ws: WebSocket): void {
             send(ws, { type: 'error', message: 'No session attached.' });
             return;
           }
-          terminalManager.write(currentSessionId, msg.data);
+          terminalManager.write(currentSessionId, msg.data, ws);
           break;
         }
 
@@ -68,7 +68,7 @@ export function handleWebSocket(ws: WebSocket): void {
             send(ws, { type: 'error', message: 'No session attached.' });
             return;
           }
-          terminalManager.resize(currentSessionId, msg.cols, msg.rows);
+          terminalManager.resize(currentSessionId, msg.cols, msg.rows, ws);
           break;
         }
 
@@ -103,7 +103,7 @@ export function handleWebSocket(ws: WebSocket): void {
 
   ws.on('close', () => {
     if (currentSessionId) {
-      terminalManager.detach(currentSessionId);
+      terminalManager.detach(currentSessionId, ws);
       console.log(`[cc-terminal] WS closed, detached session ${currentSessionId}`);
       currentSessionId = null;
     }

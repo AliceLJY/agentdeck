@@ -172,6 +172,13 @@ class TerminalManager {
   attach(sessionId: string, ws: WebSocket): void {
     const session = this.getSession(sessionId);
 
+    // If another client already owns this session, tell it that it has been
+    // taken over and demote it to read-only — its input is ignored from now on
+    // (see write()). Without this, the old device keeps writing blind.
+    if (session.ws && session.ws !== ws && session.ws.readyState === WebSocket.OPEN) {
+      try { session.ws.send(JSON.stringify({ type: 'taken_over' })); } catch {}
+    }
+
     // Lazy PTY: spawn bridge if not yet connected (recovered session)
     if (!session.pty) {
       const ptyProcess = this.spawnBridge(session.tmuxName, DEFAULT_COLS, DEFAULT_ROWS);
@@ -190,15 +197,22 @@ class TerminalManager {
     session.lastActivity = Date.now();
   }
 
-  detach(sessionId: string): void {
+  detach(sessionId: string, ws?: WebSocket): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
+    // Only the current owner may detach. Prevents a stale connection's close
+    // (after it was taken over) from clearing the new owner's ws.
+    if (ws && session.ws !== ws) return;
     session.ws = null;
     session.lastActivity = Date.now();
   }
 
-  write(sessionId: string, data: string): void {
+  write(sessionId: string, data: string, ws?: WebSocket): void {
     const session = this.getSession(sessionId);
+
+    // Ignore input from a client that is no longer the attached owner
+    // (another device took over this session) — prevents blind input.
+    if (ws && session.ws && ws !== session.ws) return;
 
     // Auto-detect title from first input
     if (session.title === new Date(session.createdAt).toLocaleTimeString()) {
@@ -215,8 +229,11 @@ class TerminalManager {
     }
   }
 
-  resize(sessionId: string, cols: number, rows: number): void {
+  resize(sessionId: string, cols: number, rows: number, ws?: WebSocket): void {
     const session = this.getSession(sessionId);
+    // Ignore resize from a non-owner (taken-over) client so it can't reshape
+    // the active owner's terminal.
+    if (ws && session.ws && ws !== session.ws) return;
     if (session.pty) {
       session.pty.resize(cols, rows);
     }

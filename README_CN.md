@@ -11,7 +11,7 @@
 - **两个 backend，一个 UI** — 同一个浏览器里既能开 Claude Code session，也能开 Codex session；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿）
 - **历史浏览** — 跨 backend 的 history view：把你磁盘上所有的 Claude Code 和 Codex 历史 session 平铺展示，点一下就能 resume 任意一个
 - **真终端** — xterm.js 渲染完整终端体验，不是 Markdown 聊天框
-- **多 Session** — 点 "+" 无限开新终端，自由切换，互不干扰
+- **多 Session** — 点 "+" 最多开 10 个并发终端，自由切换，互不干扰
 - **tmux 持久化** — Session 撑过服务端重启；PTY 跑在 tmux 里，WebSocket 只是 attach 上去
 - **5MB 环形缓冲** — 每个 Session 保留 5MB 输出历史，attach / 重连时 replay，跨设备切换不丢上下文
 - **文件上传** — 拖拽文件到终端区域，或点回形针按钮上传给 agent
@@ -77,7 +77,7 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3109?token=你的TOKEN`。token 会存在浏览器里，之后可不带 `?token=` 直接打开；不带 token 打开会显示登录框。侧边栏 "+" 按钮会弹出 backend 选择（Claude / Codex）。
+浏览器打开 `http://localhost:3109?token=你的TOKEN`。token 会存在浏览器里，之后可不带 `?token=` 直接打开；不带 token 打开会显示登录框。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Codex 筛选切换新终端使用的后端。
 
 ### 远程访问（Tailscale）
 
@@ -138,7 +138,7 @@ Session 参数（`lib/types.ts`）：
 
 - **前端**：Next.js 16（App Router）、React 19、Tailwind CSS 4、xterm.js 6
 - **后端**：Node.js HTTP 服务器、WebSocket（ws）、node-pty、tmux（session 持久化）
-- **存储**：IndexedDB（客户端 Session 列表）；服务端 session metadata 持久化在 `data/sessions.json`
+- **存储**：IndexedDB（客户端 Session 列表）；服务端 session metadata 持久化在 `~/.cc-remote-term-sessions.json`
 
 ## 致谢
 

@@ -7,6 +7,13 @@ import { resolve } from 'path';
 import { handleWebSocket } from './lib/ws-handler';
 import { terminalManager } from './lib/terminal-manager';
 
+// Prefix all server logs with an ISO timestamp for easier production debugging.
+const LOG_LEVELS: Array<'log' | 'warn' | 'error'> = ['log', 'warn', 'error'];
+for (const level of LOG_LEVELS) {
+  const original = console[level].bind(console);
+  console[level] = (...args: unknown[]) => original(`[${new Date().toISOString()}]`, ...args);
+}
+
 // Next.js auto-loads .env.local into the client bundle but NOT into this
 // custom server process. Without this, dev runs fail with
 // "CC_TERMINAL_TOKEN is not set" unless the user manually exports first.
@@ -94,6 +101,16 @@ app.prepare().then(async () => {
 
   server.listen(port, hostname, () => {
     console.log(`[cc-terminal] Server running at http://${hostname}:${port}`);
+    try {
+      const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
+      let rev = '';
+      try {
+        rev = require('child_process')
+          .execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'ignore'] })
+          .toString().trim();
+      } catch { /* not a git checkout */ }
+      console.log(`[cc-terminal] Version: ${pkg.version}${rev ? ` (${rev})` : ''}`);
+    } catch { /* package.json unreadable */ }
     console.log(`[cc-terminal] Mode: ${dev ? 'development' : 'production'}`);
     console.log(`[cc-terminal] WebSocket endpoint: ws://${hostname}:${port}/ws/terminal?token=<token>`);
 

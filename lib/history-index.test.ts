@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -373,4 +373,44 @@ test('builds a combined history index sorted across Claude and Codex', async () 
 
   assert.deepEqual(index.sessions.map((session) => session.backend), ['codex', 'claude']);
   assert.equal(index.projects.length, 2);
+});
+
+test('keeps the most recently active Codex session when session_index is stale', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccrt-codex-stale-'));
+  const sessionsRoot = join(root, 'sessions');
+  const sessionDir = join(sessionsRoot, '2026', '05', '01');
+  const indexFile = join(root, 'session_index.jsonl');
+  await mkdir(sessionDir, { recursive: true });
+
+  const idA = '019ddf07-aaaa-72d0-b8da-000000000001'; // recently active, stale index entry
+  const idB = '019ddf07-bbbb-72d0-b8da-000000000002'; // older activity, fresh index entry
+
+  // session_index lags reality: A's entry is old, B's is newer.
+  await writeFile(indexFile, jsonl([
+    { id: idA, thread_name: 'A', updated_at: '2026-05-01T00:00:00.000Z' },
+    { id: idB, thread_name: 'B', updated_at: '2026-05-02T00:00:00.000Z' },
+  ]));
+
+  const fileA = join(sessionDir, `rollout-2026-05-01T00-00-00-${idA}.jsonl`);
+  const fileB = join(sessionDir, `rollout-2026-05-01T00-00-00-${idB}.jsonl`);
+  await writeFile(fileA, jsonl([
+    { type: 'session_meta', payload: { id: idA, cwd: '/Users/alice/Projects/app-a' } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'question a' }] } },
+  ]));
+  await writeFile(fileB, jsonl([
+    { type: 'session_meta', payload: { id: idB, cwd: '/Users/alice/Projects/app-b' } },
+    { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'question b' }] } },
+  ]));
+
+  // A's transcript is the most recently modified; B's is older.
+  await utimes(fileA, new Date('2026-05-03T00:00:00.000Z'), new Date('2026-05-03T00:00:00.000Z'));
+  await utimes(fileB, new Date('2026-05-01T00:00:00.000Z'), new Date('2026-05-01T00:00:00.000Z'));
+
+  const index = await buildCodexHistoryIndex({ sessionsRootDir: sessionsRoot, indexFile, limit: 1 });
+
+  // Project list stays complete, and the single returned session is A — the
+  // most recently active — even though its session_index time is stale.
+  assert.equal(index.projects.length, 2);
+  assert.equal(index.sessions.length, 1);
+  assert.equal(index.sessions[0].sessionId, idA);
 });
