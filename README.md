@@ -18,7 +18,7 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 - **Cross-device** — Works on iPhone, iPad, Android, and desktop browsers via Tailscale
 - **iPad / iOS-friendly** — Touch key bar (Esc, Tab, Ctrl+C, arrows) and IME fixes for iOS 26
 - **Dark/Light theme** — Follows system preference, toggleable in sidebar
-- **Token auth** — Simple token-based authentication to protect your terminal
+- **Token auth** — The token is never embedded in the page HTML; supply it via a `?token=` link or the login prompt, and it's remembered per browser
 - **Single port** — HTTP + WebSocket on one port (default 3109), simple firewall setup
 
 ## Architecture
@@ -77,7 +77,7 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3109?token=YOUR_TOKEN` in your browser. The sidebar's "+" button opens a backend picker (Claude / Codex).
+Open `http://localhost:3109?token=YOUR_TOKEN` in your browser. The token is saved in your browser, so afterwards you can open the page without `?token=`. Opening with no token shows a login prompt. The sidebar's "+" button opens a backend picker (Claude / Codex).
 
 ### Remote Access (Tailscale)
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
 import HistoryHome from '@/components/HistoryHome';
+import TokenGate from '@/components/TokenGate';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
 import FileUpload from '@/components/FileUpload';
 import DropZone from '@/components/DropZone';
@@ -45,11 +46,24 @@ export default function Home() {
   // Ref to the TerminalView's sendInput function
   const sendInputRef = useRef<((data: string) => void) | null>(null);
 
-  // Read token from meta tag on mount
+  // Resolve the token WITHOUT embedding it in the server-rendered HTML.
+  // Priority: ?token= URL param (then scrub it from the address bar) → localStorage.
+  // If neither yields a token, <TokenGate> below prompts the user to enter one.
   useEffect(() => {
-    const meta = document.querySelector('meta[name="ws-token"]');
-    if (meta) {
-      setToken(meta.getAttribute('content') || '');
+    try {
+      const url = new URL(window.location.href);
+      const fromUrl = url.searchParams.get('token');
+      if (fromUrl) {
+        setToken(fromUrl);
+        localStorage.setItem('cc-terminal-token', fromUrl);
+        url.searchParams.delete('token');
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+        return;
+      }
+      const stored = localStorage.getItem('cc-terminal-token');
+      if (stored) setToken(stored);
+    } catch {
+      // localStorage unavailable (e.g. private mode); ?token= still works per load.
     }
   }, []);
 
@@ -222,6 +236,19 @@ export default function Home() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeBackend = activeSession ? getBackendDisplay(normalizeBackend(activeSession.backend)) : null;
+
+  // No token yet → show the access gate instead of rendering the app
+  // (which would otherwise fire authenticated requests with an empty token).
+  if (!token) {
+    return (
+      <TokenGate
+        onSubmit={(t) => {
+          setToken(t);
+          try { localStorage.setItem('cc-terminal-token', t); } catch {}
+        }}
+      />
+    );
+  }
 
   return (
     <div className="h-dvh flex overflow-hidden bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">

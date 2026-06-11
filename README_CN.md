@@ -18,7 +18,7 @@
 - **三端通用** — iPhone、iPad、安卓、电脑浏览器，通过 Tailscale 随时访问
 - **iPad / iOS 友好** — 触摸快捷键栏（Esc、Tab、Ctrl+C、方向键）+ iOS 26 IME 输入修复
 - **深色/浅色主题** — 跟随系统，侧边栏可切换
-- **Token 认证** — 简单 token 保护你的终端
+- **Token 认证** — token 不会写入页面 HTML；通过 `?token=` 链接或登录框提供，浏览器会记住
 - **单端口** — HTTP + WebSocket 共用一个端口（默认 3109）
 
 ## 架构
@@ -77,7 +77,7 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3109?token=你的TOKEN`。侧边栏 "+" 按钮会弹出 backend 选择（Claude / Codex）。
+浏览器打开 `http://localhost:3109?token=你的TOKEN`。token 会存在浏览器里，之后可不带 `?token=` 直接打开；不带 token 打开会显示登录框。侧边栏 "+" 按钮会弹出 backend 选择（Claude / Codex）。
 
 ### 远程访问（Tailscale）
 
