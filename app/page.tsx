@@ -293,15 +293,18 @@ export default function Home() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <button
-            onClick={() => setActiveSessionId(null)}
-            className="ml-1 p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            title="Projects"
-          >
-            <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h6l2 2h10v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-            </svg>
-          </button>
+          {activeSessionId && (
+            <button
+              onClick={() => setActiveSessionId(null)}
+              className="ml-1 shrink-0 flex items-center gap-1 h-9 pl-1.5 pr-3 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-900 dark:hover:text-gray-100 transition-colors"
+              title="Back to home"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              <span className="text-sm font-medium">Back</span>
+            </button>
+          )}
           <span className="ml-2 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
             {activeSession?.title || 'CC Terminal'}
           </span>
