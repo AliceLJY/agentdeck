@@ -283,7 +283,7 @@ export default function Home() {
       {/* Main area */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top bar */}
-        <div className="h-12 flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+        <div className="h-[calc(3rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
