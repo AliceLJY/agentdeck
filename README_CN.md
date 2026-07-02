@@ -6,6 +6,8 @@
 
 [English README](./README.md)
 
+![cc-remote-term — 在真正的浏览器终端里跑 Claude Code（xterm.js + node-pty + tmux），家里任何设备或经 Tailscale 都能访问。](docs/assets/cc-remote-term-ui.png)
+
 ## 功能
 
 - **两个 backend，一个 UI** — 同一个浏览器里既能开 Claude Code session，也能开 Codex session；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿）

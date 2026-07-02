@@ -6,6 +6,8 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 
 [中文 README](./README_CN.md)
 
+![cc-remote-term — Claude Code running in a real browser terminal (xterm.js + node-pty + tmux), reachable from any device on your network or over Tailscale.](docs/assets/cc-remote-term-ui.png)
+
 ## Features
 
 - **Two backends, one UI** — Spawn a Claude Code session or a Codex session from the same browser; each session is tagged with its backend (blue for Claude, emerald for Codex)
