@@ -145,6 +145,11 @@ class TerminalManager {
       executable: backendExecutable,
       cwd,
       resumeSessionId: resumeId,
+      model: options.model,
+      permissionMode: options.permissionMode,
+      effort: options.effort,
+      sandbox: options.sandbox,
+      reasoningEffort: options.reasoningEffort,
     });
 
     // Create detached tmux session running the selected CLI with correct env.

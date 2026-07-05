@@ -27,6 +27,11 @@ export function handleWebSocket(ws: WebSocket): void {
             cwd: msg.cwd,
             resumeSessionId: msg.resumeSessionId,
             title: msg.title,
+            model: msg.model,
+            permissionMode: msg.permissionMode,
+            effort: msg.effort,
+            sandbox: msg.sandbox,
+            reasoningEffort: msg.reasoningEffort,
           });
           terminalManager.attach(id, ws);
           currentSessionId = id;

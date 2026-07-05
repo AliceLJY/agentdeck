@@ -10,6 +10,7 @@ import TerminalKeyBar from '@/components/TerminalKeyBar';
 import FileUpload from '@/components/FileUpload';
 import DropZone from '@/components/DropZone';
 import ChatView from '@/components/ChatView';
+import NewSessionPanel from '@/components/NewSessionPanel';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
@@ -189,10 +190,20 @@ export default function Home() {
 
   // ── Session lifecycle handlers ──
 
+  const [showNewPanel, setShowNewPanel] = useState(false);
+
   // Use '__new__' as a signal to TerminalView to create (not attach)
   const handleNewSession = useCallback((options?: TerminalCreateOptions) => {
+    setShowNewPanel(false);
     setCreateOptions(options || null);
     setActiveSessionId(`__new__:${Date.now()}`);
+    setSidebarOpen(false);
+  }, [setActiveSessionId]);
+
+  // Sidebar/rail "New" opens the parameter panel instead of spawning directly
+  const handleOpenNewPanel = useCallback(() => {
+    setActiveSessionId(null);
+    setShowNewPanel(true);
     setSidebarOpen(false);
   }, [setActiveSessionId]);
 
@@ -318,7 +329,7 @@ export default function Home() {
           workingSessions={new Set(Object.values(statuses).filter((s) => s.state === 'working').map((s) => s.sessionId))}
           onSelect={handleSelectSession}
           onExpand={() => setSidebarOpen(true)}
-          onCreate={handleNewSession}
+          onCreate={handleOpenNewPanel}
         />
       </div>
 
@@ -345,7 +356,7 @@ export default function Home() {
           statuses={statuses}
           onSelect={handleSelectSession}
           onDelete={handleDeleteSession}
-          onCreate={handleNewSession}
+          onCreate={handleOpenNewPanel}
           onClose={() => setSidebarOpen(false)}
           theme={theme}
           setTheme={setTheme}
@@ -409,9 +420,14 @@ export default function Home() {
           )}
         </div>
 
-        {/* Chat / Terminal / Welcome */}
+        {/* Chat / Terminal / New-session panel / Welcome */}
         <div className="flex-1 relative min-h-0">
-          {activeSessionId && token ? (
+          {showNewPanel ? (
+            <NewSessionPanel
+              onStart={handleNewSession}
+              onCancel={() => setShowNewPanel(false)}
+            />
+          ) : activeSessionId && token ? (
             activeView === 'chat' && activeSession ? (
               <ChatView
                 key={`chat-${activeSessionId}`}

@@ -99,6 +99,16 @@ export interface TerminalCreateOptions {
   cwd?: string;
   resumeSessionId?: string;
   title?: string;
+  /** claude: --model alias/full name · codex: -m */
+  model?: string;
+  /** claude only: --permission-mode */
+  permissionMode?: string;
+  /** claude only: --effort */
+  effort?: string;
+  /** codex only: -s/--sandbox */
+  sandbox?: string;
+  /** codex only: -c model_reasoning_effort=… */
+  reasoningEffort?: string;
 }
 
 // ─── Terminal Manager Internal Types ───
