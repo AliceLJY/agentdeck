@@ -18,7 +18,11 @@ import type { ChatClaimState, ChatMessage, SessionStatus } from './types';
  */
 
 const DISCOVERY_INTERVAL_MS = 1_500;
+/** After this window we mark the session `unclaimed`… */
 const DISCOVERY_TIMEOUT_MS = 60_000;
+/** …but keep retrying slowly forever: the CLI only creates its transcript
+ * file on the FIRST prompt, which may come minutes after spawn. */
+const DISCOVERY_SLOW_MS = 5_000;
 const POLL_MS = 1_500;
 const STATUS_TICK_MS = 1_000;
 /** jsonl silent for longer than this → session considered idle. */
@@ -126,12 +130,11 @@ export class TranscriptHub {
 
   private startDiscovery(t: Tracked): void {
     if (t.discoveryTimer) return;
-    t.state = 'pending';
     t.discoveryDeadline = Date.now() + DISCOVERY_TIMEOUT_MS;
 
     const tick = async () => {
       t.discoveryTimer = null;
-      if (!this.tracked.has(t.sessionId)) return;
+      if (!this.tracked.has(t.sessionId) || t.state === 'claimed') return;
       let found: string | null = null;
       try {
         found = await discoverTranscript(t.target, this.roots);
@@ -142,15 +145,27 @@ export class TranscriptHub {
         await this.claim(t, found);
         return;
       }
-      if (Date.now() >= t.discoveryDeadline) {
-        t.state = 'unclaimed';
+      const pastDeadline = Date.now() >= t.discoveryDeadline;
+      if (pastDeadline && t.state === 'pending') {
+        t.state = 'unclaimed'; // demote the UI, but never stop looking
         this.broadcastState(t);
-        return;
       }
-      t.discoveryTimer = setTimeout(tick, DISCOVERY_INTERVAL_MS);
+      t.discoveryTimer = setTimeout(tick, pastDeadline ? DISCOVERY_SLOW_MS : DISCOVERY_INTERVAL_MS);
     };
 
     t.discoveryTimer = setTimeout(tick, 300);
+  }
+
+  /** A prompt was just sent — the transcript file is about to exist. */
+  nudgeDiscovery(sessionId: string): void {
+    const t = this.tracked.get(sessionId);
+    if (!t || t.state === 'claimed') return;
+    t.discoveryDeadline = Date.now() + DISCOVERY_TIMEOUT_MS; // back to fast polling
+    if (t.discoveryTimer) {
+      clearTimeout(t.discoveryTimer);
+      t.discoveryTimer = null;
+    }
+    this.startDiscovery(t);
   }
 
   private async claim(t: Tracked, filePath: string): Promise<void> {

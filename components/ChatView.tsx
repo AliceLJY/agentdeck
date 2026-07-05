@@ -173,44 +173,6 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
 
   const display = getBackendDisplay(normalizeBackend(backend));
 
-  // ─── Waiting / unavailable states ───
-  if (claimState !== 'claimed' && messages.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center px-6">
-        <div className="text-center max-w-sm">
-          {claimState === 'pending' ? (
-            <>
-              <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
-              <p className="text-sm text-gray-600 dark:text-gray-300">
-                Waiting for the session transcript…
-              </p>
-              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                It appears after the first prompt is sent.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-gray-600 dark:text-gray-300">
-                No transcript found for this session.
-              </p>
-              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                Chat view needs the CLI&apos;s on-disk session file. You can keep working in the terminal.
-              </p>
-            </>
-          )}
-          {onRequestTerm && (
-            <button
-              onClick={onRequestTerm}
-              className="mt-5 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-            >
-              Open Terminal view
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-950">
       {/* Message list */}
@@ -219,14 +181,47 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
         onScroll={handleScroll}
         className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-4 space-y-4"
       >
-        {truncated && (
-          <p className="text-center text-xs text-gray-400 dark:text-gray-500">
-            Earlier messages omitted — open the terminal or history view for the full transcript.
-          </p>
+        {claimState !== 'claimed' && messages.length === 0 ? (
+          <div className="h-full flex items-center justify-center px-6">
+            <div className="text-center max-w-sm">
+              {claimState === 'pending' ? (
+                <>
+                  <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    Waiting for the session transcript…
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  No transcript yet for this session.
+                </p>
+              )}
+              <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">
+                The CLI creates it when the first prompt is sent — send one below (or in the
+                terminal) and chat view picks it up automatically.
+              </p>
+              {onRequestTerm && (
+                <button
+                  onClick={onRequestTerm}
+                  className="mt-5 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                >
+                  Open Terminal view
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {truncated && (
+              <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+                Earlier messages omitted — open the terminal or history view for the full transcript.
+              </p>
+            )}
+            {messages.map((message) => (
+              <MessageRow key={message.id} message={message} />
+            ))}
+          </>
         )}
-        {messages.map((message) => (
-          <MessageRow key={message.id} message={message} />
-        ))}
       </div>
 
       {/* Jump to latest */}

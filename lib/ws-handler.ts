@@ -73,6 +73,9 @@ export function handleWebSocket(ws: WebSocket): void {
             return;
           }
           terminalManager.write(currentSessionId, msg.data, ws);
+          // Enter pressed → a first prompt may have just been submitted, and
+          // the CLI creates its transcript file on the first prompt.
+          if (msg.data.includes('\r')) transcriptHub.nudgeDiscovery(currentSessionId);
           break;
         }
 
@@ -122,9 +125,16 @@ export function handleWebSocket(ws: WebSocket): void {
         case 'chat_input': {
           const text = String(msg.text ?? '');
           if (!text.trim()) return;
+          const sessionId = msg.sessionId;
           // Bracketed paste keeps multi-line input as one block inside the
-          // TUI; trailing CR submits it — equivalent to typing + Enter.
-          terminalManager.write(msg.sessionId, `\x1b[200~${text}\x1b[201~\r`);
+          // TUI. The submitting CR must come as a SEPARATE write a beat
+          // later — glued to the paste it gets swallowed with it (verified
+          // against the Claude Code TUI).
+          terminalManager.write(sessionId, `\x1b[200~${text}\x1b[201~`);
+          setTimeout(() => {
+            try { terminalManager.write(sessionId, '\r'); } catch {}
+            transcriptHub.nudgeDiscovery(sessionId);
+          }, 150);
           break;
         }
 
