@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
+import SessionRail from '@/components/SessionRail';
 import HistoryHome from '@/components/HistoryHome';
 import TokenGate from '@/components/TokenGate';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
@@ -276,18 +277,31 @@ export default function Home() {
 
   return (
     <div className="h-dvh flex overflow-hidden bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
-      {/* Sidebar overlay backdrop (mobile) */}
+      {/* Session rail — phone portrait only; list + content stay on one screen */}
+      <div className="md:hidden flex-shrink-0">
+        <SessionRail
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          aliveSessions={aliveSessions}
+          onSelect={handleSelectSession}
+          onExpand={() => setSidebarOpen(true)}
+          onCreate={handleNewSession}
+        />
+      </div>
+
+      {/* Sidebar overlay backdrop (mobile expanded list) */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-40"
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar: slide-over on phones, persistent narrow pane on md+ */}
       <div
         className={`
           fixed inset-y-0 left-0 z-50 w-[280px] transform transition-transform duration-200
+          md:static md:z-auto md:w-[240px] md:flex-shrink-0 md:translate-x-0 md:transition-none
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
@@ -308,15 +322,6 @@ export default function Home() {
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top bar */}
         <div className="h-[calc(3rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            title="Live terminals"
-          >
-            <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
           {activeSessionId && (
             <button
               onClick={() => setActiveSessionId(null)}
