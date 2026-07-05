@@ -331,8 +331,10 @@ export default function Home() {
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeBackend = activeSession ? getBackendDisplay(normalizeBackend(activeSession.backend)) : null;
   const isRealSession = Boolean(activeSessionId && !activeSessionId.startsWith('__new__'));
+  // Chat is the default view — smooth scrolling is the whole point; the
+  // terminal stays one tap away for TUI-only interactions.
   const activeView: 'chat' | 'term' = isRealSession
-    ? (viewModes[activeSessionId!] || 'term')
+    ? (viewModes[activeSessionId!] || 'chat')
     : 'term';
 
   // No token yet → show the access gate instead of rendering the app

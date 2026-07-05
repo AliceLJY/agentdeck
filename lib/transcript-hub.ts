@@ -145,6 +145,13 @@ export class TranscriptHub {
         found = null;
       }
       if (found) {
+        // Re-check at claim time: several sessions discover concurrently
+        // (server restart recovers them all at once) and the exclude set each
+        // one scanned with is already stale by now.
+        if (this.claimedPaths().has(found)) {
+          t.discoveryTimer = setTimeout(tick, DISCOVERY_INTERVAL_MS);
+          return;
+        }
         await this.claim(t, found);
         return;
       }

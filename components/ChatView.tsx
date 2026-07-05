@@ -180,6 +180,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
         ref={listRef}
         onScroll={handleScroll}
         className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-4 space-y-4"
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {claimState !== 'claimed' && messages.length === 0 ? (
           <div className="h-full flex items-center justify-center px-6">
