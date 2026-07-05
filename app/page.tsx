@@ -98,7 +98,11 @@ export default function Home() {
   // Live per-session status (working/idle + current action) from the hub
   const [statuses, setStatuses] = useState<Record<string, SessionStatus>>({});
 
-  // Reconcile client IDB with server sessions (removes stale entries after restart)
+  // Reconcile client IDB with server sessions — two-way: drop entries the
+  // server no longer knows, and adopt live sessions this device has never
+  // seen (created from another device, or orphaned by a dropped 'created'
+  // reply). Without adoption those sessions are invisible here yet still
+  // count against MAX_SESSIONS.
   const handleServerSessionsRef = useRef<(list: SessionInfo[]) => void>(() => {});
   handleServerSessionsRef.current = (list) => {
     const serverIds = new Set(list.map((s) => s.id));
@@ -113,6 +117,19 @@ export default function Home() {
         hadStale = true;
       }
     });
+
+    // Adopt server sessions missing from this device's list
+    const known = new Set(sessions.map((s) => s.id));
+    const adopted = list.filter((s) => s.alive && !known.has(s.id));
+    if (adopted.length > 0) {
+      Promise.all(adopted.map((s) => saveSession({
+        id: s.id,
+        backend: normalizeBackend(s.backend),
+        title: s.title,
+        createdAt: s.createdAt,
+        lastSeen: s.lastActivity,
+      }))).then(() => refresh());
+    }
 
     // If all sessions were stale and active session is dead, reset to welcome
     if (hadStale && activeSessionId && !serverIds.has(activeSessionId)) {
@@ -209,6 +226,7 @@ export default function Home() {
 
   const handleSelectSession = useCallback(
     (id: string) => {
+      setShowNewPanel(false); // the panel must never shadow an existing session
       select(id);
       setSidebarOpen(false);
     },

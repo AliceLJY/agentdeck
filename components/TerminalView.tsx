@@ -76,6 +76,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const currentSessionIdRef = useRef<string | null>(sessionId);
     const reconnectAttemptsRef = useRef(0);
     const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // A 'create' may already be in flight when the socket drops (common on
+    // phones) — a reconnect must never fire a second one.
+    const createSentRef = useRef(false);
 
     // Keep sessionId ref in sync
     useEffect(() => {
@@ -227,6 +230,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
           const sid = currentSessionIdRef.current;
           if (!sid || sid.startsWith('__new__')) {
+            if (createSentRef.current) {
+              term.write('\r\n\x1b[33m[Reconnected while the session was still being created — go Back and pick it from the list, or retry.]\x1b[0m\r\n');
+              return;
+            }
+            createSentRef.current = true;
             // Create new session on server
             ws.send(
               JSON.stringify({
@@ -237,6 +245,11 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 cwd: createOptions?.cwd,
                 resumeSessionId: createOptions?.resumeSessionId,
                 title: createOptions?.title,
+                model: createOptions?.model,
+                permissionMode: createOptions?.permissionMode,
+                effort: createOptions?.effort,
+                sandbox: createOptions?.sandbox,
+                reasoningEffort: createOptions?.reasoningEffort,
               }),
             );
           } else {

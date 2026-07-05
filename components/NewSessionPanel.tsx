@@ -59,8 +59,11 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
   const [permissionMode, setPermissionMode] = useState('');
   const [reasoningEffort, setReasoningEffort] = useState('');
   const [sandbox, setSandbox] = useState('');
+  const [starting, setStarting] = useState(false);
 
   const start = () => {
+    if (starting) return; // double-tap on a phone must not spawn two sessions
+    setStarting(true);
     const options: TerminalCreateOptions = { backend };
     const dir = cwd.trim();
     if (dir) options.cwd = dir;
@@ -137,11 +140,12 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
         <div className="flex gap-3 mt-8">
           <button
             onClick={start}
-            className={`flex-1 rounded-xl py-3 text-sm font-medium text-white transition-colors ${
+            disabled={starting}
+            className={`flex-1 rounded-xl py-3 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
               backend === 'codex' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-500 hover:bg-blue-600'
             }`}
           >
-            Start session
+            {starting ? 'Starting…' : 'Start session'}
           </button>
           <button
             onClick={onCancel}
