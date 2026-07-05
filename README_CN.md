@@ -2,7 +2,7 @@
 
 基于 Web 的 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [Codex](https://github.com/openai/codex) 远程终端。手机、平板、电脑，任何设备都能通过浏览器访问两种 CLI。
 
-**不是阉割版聊天界面。** 这是真正的终端模拟器（xterm.js + node-pty + tmux），完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。
+**是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
 
 [English README](./README.md)
 
@@ -11,10 +11,15 @@
 - **两个 backend，一个 UI** — 同一个浏览器里既能开 Claude Code session，也能开 Codex session；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿）
 - **历史浏览** — 跨 backend 的 history view：把你磁盘上所有的 Claude Code 和 Codex 历史 session 平铺展示，点一下就能 resume 任意一个
 - **真终端** — xterm.js 渲染完整终端体验，不是 Markdown 聊天框
+- **对话视图** — 任意 live session 一键翻成结构化对话：消息气泡、Markdown 渲染、可折叠的工具调用条、自动滚底（往上翻就暂停）。它读的是 CLI 自己写的 transcript 文件，所以拿到的是完整、能滚的记录——终端取景框会把长回复裁掉半截，对话视图不会。要点 TUI 选择框 / 权限确认，一键切回真终端。
+- **对话里直接发 & 打断** — 直接从对话视图打字发送（写进 PTY，跟在终端里敲一样）；停止按钮随时打断正在跑的 agent。还能内联传图 / 文件——发一张手机截图，agent 直接读。
+- **列表实时状态** — 每个 session 显示它此刻在干什么（运行中显示当前工具调用），空闲时显示上一条回复摘要，活跃时状态点会呼吸。
+- **响应式分栏** — 平板 / 电脑上 session 列表是内容旁边常驻的窄栏；手机上收成一条细图标栏。两种屏幕都做到列表和内容同屏。
+- **新建参数面板** — 开 session 前选模型、reasoning 力度、权限模式（Claude）或 reasoning / sandbox（Codex）；每个值都对着 CLI 自己的 flag 校验过。
 - **多 Session** — 点 "+" 最多开 10 个并发终端，自由切换，互不干扰
 - **tmux 持久化** — Session 撑过服务端重启；PTY 跑在 tmux 里，WebSocket 只是 attach 上去
 - **5MB 环形缓冲** — 每个 Session 保留 5MB 输出历史，attach / 重连时 replay，跨设备切换不丢上下文
-- **文件上传** — 拖拽文件到终端区域，或点回形针按钮上传给 agent
+- **文件上传** — 拖拽到终端区域，或在两个视图里点回形针，把文件交给正在跑的 agent
 - **三端通用** — iPhone、iPad、安卓、电脑浏览器，通过 Tailscale 随时访问
 - **iPad / iOS 友好** — 触摸快捷键栏（Esc、Tab、Ctrl+C、方向键）+ iOS 26 IME 输入修复
 - **深色/浅色主题** — 跟随系统，侧边栏可切换
@@ -44,7 +49,8 @@
 - **TerminalManager** — 管 tmux + PTY 生命周期、环形缓冲、attach/detach
 - **backends.ts** — 选 `claude` 还是 `codex` 可执行文件，构造对应 argv（包括各自的 `--resume` 语义）
 - **history-index.ts** — 扫描 `~/.claude/projects/*/`（Claude Code）+ `~/.codex/sessions/*/`（Codex），渲染统一的历史浏览
-- **WebSocket 协议** — JSON 消息：`create`（带 `backend: 'claude' | 'codex'`）、`attach`、`input`、`resize`、`kill`、`list`
+- **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — 只读的对话层：找到 CLI 为某个 live session 写的 transcript 文件，增量 tail、解析成结构化消息 + 元信息（模型、token、分支、工具调用），推给对话视图。CLI 和终端那条路一点不动。
+- **WebSocket 协议** — JSON 消息：`create` / `attach` / `input` / `resize` / `kill` / `list`（终端），外加 `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status`（对话 + 实时状态）
 
 ## 快速开始
 

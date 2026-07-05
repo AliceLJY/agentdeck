@@ -2,7 +2,7 @@
 
 A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) CLI. Access either agent from any device — phone, tablet, or desktop — over your local network or Tailscale.
 
-**Not a chat wrapper.** This is a real terminal emulator (xterm.js + node-pty + tmux) that runs the upstream CLI interactively, exactly as it would behave in your local terminal.
+**A real terminal, not a chat wrapper.** xterm.js + node-pty + tmux run the upstream CLI interactively, exactly as it behaves in your local terminal. Layered on top is an optional **chat view** — the same live session rendered as clean, scrollable message bubbles, so reading long replies and typing on a phone feel native, without giving up the real terminal underneath.
 
 [中文 README](./README_CN.md)
 
@@ -11,10 +11,15 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 - **Two backends, one UI** — Spawn a Claude Code session or a Codex session from the same browser; each session is tagged with its backend (blue for Claude, emerald for Codex)
 - **History browser** — Cross-backend history view: browse every Claude Code and Codex session that exists on your disk, side by side, and resume any of them in one click
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
+- **Chat view** — Flip any live session into a structured chat: message bubbles, rendered Markdown, collapsible tool-call strips, auto-scroll that pauses when you scroll up. It reads the CLI's own transcript file, so it holds the complete, scrollable record — the terminal viewport can truncate a long reply, the chat view never does. One tap back to the real terminal for TUI prompts and pickers.
+- **Send & interrupt from chat** — Type and send straight from the chat view (it writes to the PTY, same as typing in the terminal); a stop button interrupts the running agent. Attach an image or file inline — send a phone screenshot and the agent reads it.
+- **Live status in the session list** — Each session shows what it is doing right now (the current tool call while working) or a preview of its last reply when idle, with a pulsing dot for active work.
+- **Responsive split layout** — On tablet/desktop the session list is a persistent narrow pane next to the content; on a phone it collapses to a slim icon rail. List and content stay on one screen either way.
+- **New-session parameters** — Choose model, reasoning effort, and permission mode (Claude) or reasoning / sandbox (Codex) before spawning; every value is validated against the CLI's own flags.
 - **Multi-session** — Click "+" to spawn up to 10 concurrent sessions, switch freely between them
 - **tmux-backed persistence** — Sessions survive server restarts; the PTY lives in tmux, the WebSocket just attaches to it
 - **Session ring buffer** — 5 MB of output per session is replayed on reconnect, so switching devices doesn't lose context
-- **File upload** — Drag & drop files or click the paperclip button to send files to the running agent
+- **File upload** — Drag & drop onto the terminal, or click the paperclip in either view, to hand files to the running agent
 - **Cross-device** — Works on iPhone, iPad, Android, and desktop browsers via Tailscale
 - **iPad / iOS-friendly** — Touch key bar (Esc, Tab, Ctrl+C, arrows) and IME fixes for iOS 26
 - **Dark/Light theme** — Follows system preference, toggleable in sidebar
@@ -44,7 +49,8 @@ Browser (any device)          Server (your Mac)
 - **TerminalManager** — Manages tmux-backed PTY lifecycles, ring buffers, attach/detach per session
 - **backends.ts** — Picks the right CLI (`claude` or `codex`) and builds the right argv, including `--resume` semantics for each
 - **history-index.ts** — Scans both `~/.claude/projects/*/` (Claude Code) and `~/.codex/sessions/*/` (Codex) and renders a unified history browser
-- **WebSocket protocol** — JSON messages: `create` (with `backend: 'claude' | 'codex'`), `attach`, `input`, `resize`, `kill`, `list`
+- **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — The read-side chat layer: finds the transcript file the CLI writes for a live session, tails it incrementally, parses it into structured messages + metadata (model, tokens, branch, tool calls), and streams them to the chat view. The CLI and terminal path stay untouched.
+- **WebSocket protocol** — JSON messages: `create` / `attach` / `input` / `resize` / `kill` / `list` (terminal), plus `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status` (chat + live status)
 
 ## Quick Start
 
