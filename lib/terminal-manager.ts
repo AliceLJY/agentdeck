@@ -28,6 +28,7 @@ interface TerminalSession {
   backend: HistoryBackend;
   tmuxName: string;
   cwd: string;
+  resumeSessionId: string | null;
   pty: pty.IPty | null;          // null when recovered but client hasn't attached yet
   ws: WebSocket | null;
   buffer: RingBuffer;
@@ -96,6 +97,7 @@ class TerminalManager {
           backend,
           tmuxName,
           cwd: paneCwd || this.home,
+          resumeSessionId: meta?.resumeSessionId || null,
           pty: null,
           ws: null,
           buffer: new RingBuffer(),
@@ -164,6 +166,7 @@ class TerminalManager {
       backend,
       tmuxName,
       cwd,
+      resumeSessionId: resumeId,
       pty: ptyProcess,
       ws: null,
       buffer: new RingBuffer(),
@@ -176,7 +179,12 @@ class TerminalManager {
 
     this.setupPtyHandlers(session);
     this.sessions.set(id, session);
-    this.store.save(id, { backend: session.backend, title: session.title, createdAt: now });
+    this.store.save(id, {
+      backend: session.backend,
+      title: session.title,
+      createdAt: now,
+      resumeSessionId: resumeId,
+    });
 
     console.log(`[cc-terminal] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd} (${this.sessions.size}/${MAX_SESSIONS})`);
     return this.toSessionInfo(session);
@@ -400,7 +408,8 @@ class TerminalManager {
 
   private toSessionInfo(s: TerminalSession): SessionInfo {
     return {
-      id: s.id, backend: s.backend, title: s.title, cwd: s.cwd, createdAt: s.createdAt,
+      id: s.id, backend: s.backend, title: s.title, cwd: s.cwd,
+      resumeSessionId: s.resumeSessionId, createdAt: s.createdAt,
       lastActivity: s.lastActivity, attached: s.ws !== null, alive: s.alive,
     };
   }

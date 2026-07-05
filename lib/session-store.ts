@@ -6,6 +6,10 @@ interface SessionMeta {
   backend?: HistoryBackend;
   title: string;
   createdAt: number;
+  /** Transcript id this session resumed from. Resume APPENDS to the original
+   * transcript file instead of creating a new one, so discovery must know
+   * this — including after a server restart. */
+  resumeSessionId?: string | null;
 }
 
 const STORE_PATH = path.join(

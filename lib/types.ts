@@ -33,6 +33,7 @@ export interface SessionInfo {
   backend: HistoryBackend;
   title: string;
   cwd: string;
+  resumeSessionId?: string | null;
   createdAt: number;
   lastActivity: number;
   attached: boolean;          // true if a WS is currently attached

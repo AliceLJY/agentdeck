@@ -60,6 +60,7 @@ app.prepare().then(async () => {
       backend: session.backend,
       cwd: session.cwd,
       spawnTimeMs: session.createdAt,
+      resumeSessionId: session.resumeSessionId,
     });
   }
   const handleUpgrade = app.getUpgradeHandler();
