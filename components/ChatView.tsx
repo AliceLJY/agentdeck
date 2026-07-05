@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import FileUpload from '@/components/FileUpload';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
 import type {
   ChatClaimState,
@@ -252,6 +253,16 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
 
       {/* Input */}
       <div className="flex items-end gap-2 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2">
+        <div className="shrink-0 h-11 flex items-center">
+          <FileUpload
+            token={token}
+            onFileUploaded={(path) =>
+              // Path lands in the draft so intent can be typed alongside it;
+              // the CLI reads the file when the message is sent.
+              setDraft((d) => (d.trim() ? `${d.trimEnd()} ${path} ` : `${path} `))
+            }
+          />
+        </div>
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

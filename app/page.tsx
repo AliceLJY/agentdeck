@@ -443,7 +443,9 @@ export default function Home() {
               {activeBackend.label}
             </span>
           )}
-          {activeSessionId && !activeSessionId.startsWith('__new__') && token && (
+          {isRealSession && token && activeView === 'term' && (
+            /* Chat view has its own upload button wired to the draft box —
+               this one types the path straight into the terminal. */
             <FileUpload
               token={token}
               onFileUploaded={handleFileUploaded}
