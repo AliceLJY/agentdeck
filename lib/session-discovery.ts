@@ -33,6 +33,10 @@ export interface DiscoveryTarget {
 export interface DiscoveryRoots {
   claudeRoot?: string;
   codexRoot?: string;
+  /** Transcripts already claimed by other sessions — never claim them again.
+   * Without this, several sessions spawned in the same cwd race for the same
+   * file (the newest one wins them all). */
+  excludePaths?: ReadonlySet<string>;
 }
 
 /** Files born earlier than spawnTime−GRACE are never ours. */
@@ -43,11 +47,15 @@ export async function discoverTranscript(
   roots: DiscoveryRoots = {},
 ): Promise<string | null> {
   return target.backend === 'codex'
-    ? discoverCodex(target, roots.codexRoot || codexSessionsRoot())
-    : discoverClaude(target, roots.claudeRoot || claudeProjectsRoot());
+    ? discoverCodex(target, roots.codexRoot || codexSessionsRoot(), roots.excludePaths)
+    : discoverClaude(target, roots.claudeRoot || claudeProjectsRoot(), roots.excludePaths);
 }
 
-async function discoverClaude(target: DiscoveryTarget, root: string): Promise<string | null> {
+async function discoverClaude(
+  target: DiscoveryTarget,
+  root: string,
+  exclude?: ReadonlySet<string>,
+): Promise<string | null> {
   const projectDir = path.join(root, projectIdFromCwd(target.cwd));
   if (!existsSync(projectDir)) return null;
 
@@ -64,6 +72,7 @@ async function discoverClaude(target: DiscoveryTarget, root: string): Promise<st
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
     const filePath = path.join(projectDir, entry.name);
+    if (exclude?.has(filePath)) continue;
     let fileStat;
     try {
       fileStat = await stat(filePath);
@@ -90,7 +99,11 @@ async function discoverClaude(target: DiscoveryTarget, root: string): Promise<st
   return best?.filePath || resumeFallback;
 }
 
-async function discoverCodex(target: DiscoveryTarget, root: string): Promise<string | null> {
+async function discoverCodex(
+  target: DiscoveryTarget,
+  root: string,
+  exclude?: ReadonlySet<string>,
+): Promise<string | null> {
   // Rollouts live under YYYY/MM/DD (local time); include the previous day to
   // survive spawns that straddle midnight.
   const dayDirs = [target.spawnTimeMs, target.spawnTimeMs - 24 * 3600 * 1000]
@@ -110,6 +123,7 @@ async function discoverCodex(target: DiscoveryTarget, root: string): Promise<str
     for (const entry of entries) {
       if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
       const filePath = path.join(dir, entry.name);
+      if (exclude?.has(filePath)) continue;
       let fileStat;
       try {
         fileStat = await stat(filePath);

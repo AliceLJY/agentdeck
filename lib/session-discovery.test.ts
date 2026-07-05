@@ -78,6 +78,34 @@ describe('discoverTranscript (claude)', () => {
       null,
     );
   });
+
+  it('never claims a transcript another session already owns', async () => {
+    const cwd = '/Users/alice/proj';
+    const dir = path.join(work, projectIdFromCwd(cwd));
+    const claimed = path.join(dir, 'claimed-by-other.jsonl');
+    await touch(claimed, '{}\n');
+
+    const spawnTimeMs = Date.now() - 1000;
+    // Only candidate is excluded → nothing to claim
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'claude', cwd, spawnTimeMs },
+        { claudeRoot: work, excludePaths: new Set([claimed]) },
+      ),
+      null,
+    );
+
+    // A second fresh file appears → the excluded one is still skipped
+    const own = path.join(dir, 'own-session.jsonl');
+    await touch(own, '{}\n');
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'claude', cwd, spawnTimeMs },
+        { claudeRoot: work, excludePaths: new Set([claimed]) },
+      ),
+      own,
+    );
+  });
 });
 
 describe('discoverTranscript (codex)', () => {

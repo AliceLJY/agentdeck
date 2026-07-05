@@ -137,7 +137,10 @@ export class TranscriptHub {
       if (!this.tracked.has(t.sessionId) || t.state === 'claimed') return;
       let found: string | null = null;
       try {
-        found = await discoverTranscript(t.target, this.roots);
+        found = await discoverTranscript(t.target, {
+          ...this.roots,
+          excludePaths: this.claimedPaths(),
+        });
       } catch {
         found = null;
       }
@@ -154,6 +157,15 @@ export class TranscriptHub {
     };
 
     t.discoveryTimer = setTimeout(tick, 300);
+  }
+
+  /** Transcripts already claimed by live sessions — one file, one owner. */
+  private claimedPaths(): Set<string> {
+    const set = new Set<string>();
+    for (const t of this.tracked.values()) {
+      if (t.filePath) set.add(t.filePath);
+    }
+    return set;
   }
 
   /** A prompt was just sent — the transcript file is about to exist. */
@@ -310,6 +322,7 @@ export class TranscriptHub {
         lastReplyPreview: t.lastReplyPreview,
         model: t.parser?.meta.model,
         aiTitle: t.parser?.meta.aiTitle,
+        transcriptId: t.parser?.meta.transcriptId,
       } satisfies SessionStatus;
     });
   }

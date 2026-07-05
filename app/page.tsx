@@ -212,10 +212,22 @@ export default function Home() {
   // Use '__new__' as a signal to TerminalView to create (not attach)
   const handleNewSession = useCallback((options?: TerminalCreateOptions) => {
     setShowNewPanel(false);
+    // Resuming a transcript some live session is already writing would fork a
+    // duplicate — jump to the running session instead.
+    if (options?.resumeSessionId) {
+      const live = Object.values(statuses).find(
+        (s) => s.transcriptId === options.resumeSessionId && aliveSessions.has(s.sessionId),
+      );
+      if (live) {
+        select(live.sessionId);
+        setSidebarOpen(false);
+        return;
+      }
+    }
     setCreateOptions(options || null);
     setActiveSessionId(`__new__:${Date.now()}`);
     setSidebarOpen(false);
-  }, [setActiveSessionId]);
+  }, [setActiveSessionId, statuses, aliveSessions, select]);
 
   // Sidebar/rail "New" opens the parameter panel instead of spawning directly
   const handleOpenNewPanel = useCallback(() => {

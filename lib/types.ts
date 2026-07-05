@@ -82,6 +82,9 @@ export interface SessionStatus {
   lastReplyPreview?: string;
   model?: string;
   aiTitle?: string;
+  /** On-disk transcript id this live session is writing — lets the UI route
+   * a history "Resume" to the already-running session instead of forking. */
+  transcriptId?: string;
 }
 
 // ─── Client-side Session Metadata (IndexedDB) ───
