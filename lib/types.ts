@@ -8,7 +8,12 @@ export type ClientMessage =
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'kill'; sessionId: string }
-  | { type: 'list' };
+  | { type: 'list' }
+  | { type: 'chat_attach'; sessionId: string }
+  | { type: 'chat_detach' }
+  | { type: 'watch_status' }
+  | { type: 'chat_input'; sessionId: string; text: string }
+  | { type: 'interrupt'; sessionId: string };
 
 // Server -> Client (JSON)
 export type ServerMessage =
@@ -17,16 +22,66 @@ export type ServerMessage =
   | { type: 'exit'; sessionId: string; code: number }
   | { type: 'error'; message: string }
   | { type: 'sessions'; list: SessionInfo[] }
-  | { type: 'taken_over' };
+  | { type: 'taken_over' }
+  | { type: 'chat_init'; sessionId: string; state: ChatClaimState; messages: ChatMessage[]; meta: TranscriptMeta; truncated: boolean }
+  | { type: 'chat_event'; sessionId: string; upserts: ChatMessage[]; meta?: TranscriptMeta }
+  | { type: 'chat_state'; sessionId: string; state: ChatClaimState }
+  | { type: 'status_all'; statuses: SessionStatus[] };
 
 export interface SessionInfo {
   id: string;
   backend: HistoryBackend;
   title: string;
+  cwd: string;
   createdAt: number;
   lastActivity: number;
   attached: boolean;          // true if a WS is currently attached
   alive: boolean;             // true if PTY process is still running
+}
+
+// ─── Chat Transcript ───
+
+/** One tool invocation inside an assistant message. */
+export interface ToolCallInfo {
+  id: string;
+  name: string;
+  summary: string;
+}
+
+/** A rendered chat message reconstructed from the on-disk session transcript. */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;               // markdown source, newlines preserved
+  tools: ToolCallInfo[];
+  timestamp: string;
+}
+
+/**
+ * pending   — terminal spawned, still looking for its transcript file
+ * claimed   — transcript file found, chat stream live
+ * unclaimed — gave up finding a transcript (chat view unavailable)
+ */
+export type ChatClaimState = 'pending' | 'claimed' | 'unclaimed';
+
+export interface TranscriptMeta {
+  model?: string;
+  gitBranch?: string;
+  contextTokens?: number;     // latest request input+cache ≈ current context size
+  totalOutTokens?: number;    // cumulative output tokens
+  aiTitle?: string;
+  transcriptId?: string;      // on-disk session id
+}
+
+export interface SessionStatus {
+  sessionId: string;
+  state: 'working' | 'idle' | 'unknown';
+  claim: ChatClaimState;
+  currentAction?: string;     // latest tool call, e.g. "Bash: git status"
+  lastReplyAt?: string;
+  lastReplyPreview?: string;
+  model?: string;
+  aiTitle?: string;
 }
 
 // ─── Client-side Session Metadata (IndexedDB) ───

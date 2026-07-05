@@ -454,7 +454,7 @@ async function listCodexSessionCandidates(rootDir: string): Promise<CodexSession
 // so we only need the file head (cwd / id / timestamp) to build the project list
 // and pick which sessions to fully parse — reading multi-MB transcripts in full
 // just to learn cwd is what made the codex/all index O(all sessions) and slow.
-async function readCodexSessionHead(
+export async function readCodexSessionHead(
   filePath: string,
 ): Promise<{ sessionId: string; cwd: string; createdAt: string }> {
   const result = { sessionId: '', cwd: '', createdAt: '' };
@@ -791,7 +791,7 @@ function eventTimestamp(event: Record<string, unknown>, mtimeMs: number): string
   return new Date(mtimeMs).toISOString();
 }
 
-function projectIdFromCwd(cwd: string): string {
+export function projectIdFromCwd(cwd: string): string {
   const normalized = cwd.replace(/\/+$/, '') || '/';
   const parts = normalized.split(/[\\/]+/).filter(Boolean);
   return parts.length > 0 ? `-${parts.join('-')}` : '-';

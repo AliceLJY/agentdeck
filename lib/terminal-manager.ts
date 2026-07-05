@@ -27,6 +27,7 @@ interface TerminalSession {
   id: string;
   backend: HistoryBackend;
   tmuxName: string;
+  cwd: string;
   pty: pty.IPty | null;          // null when recovered but client hasn't attached yet
   ws: WebSocket | null;
   buffer: RingBuffer;
@@ -85,10 +86,16 @@ class TerminalManager {
 
         const meta = savedMeta[id];
         const backend = normalizeBackend(meta?.backend);
+        // Recovered sessions predate this process — recover the CLI's cwd from
+        // tmux so transcript discovery can still find their session files.
+        const paneCwd = this.tmuxExecSafe(
+          ['display-message', '-t', tmuxName, '-p', '#{pane_current_path}'],
+        ).trim();
         this.sessions.set(id, {
           id,
           backend,
           tmuxName,
+          cwd: paneCwd || this.home,
           pty: null,
           ws: null,
           buffer: new RingBuffer(),
@@ -151,6 +158,7 @@ class TerminalManager {
       id,
       backend,
       tmuxName,
+      cwd,
       pty: ptyProcess,
       ws: null,
       buffer: new RingBuffer(),
@@ -214,9 +222,15 @@ class TerminalManager {
     // (another device took over this session) — prevents blind input.
     if (ws && session.ws && ws !== session.ws) return;
 
-    // Auto-detect title from first input
+    // Auto-detect title from first input. Strip escape sequences and control
+    // chars first so bracketed-paste wrappers (chat input) and bare Esc
+    // (interrupt) can't become the title.
     if (session.title === new Date(session.createdAt).toLocaleTimeString()) {
-      const trimmed = data.replace(/[\r\n]/g, '').trim();
+      const trimmed = data
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, '')
+        // eslint-disable-next-line no-control-regex
+        .replace(/[\x00-\x1f\x7f]/g, '')
+        .trim();
       if (trimmed.length > 0) {
         session.title = trimmed.length > 50 ? trimmed.slice(0, 50) : trimmed;
         this.store.updateTitle(sessionId, session.title);
@@ -381,7 +395,7 @@ class TerminalManager {
 
   private toSessionInfo(s: TerminalSession): SessionInfo {
     return {
-      id: s.id, backend: s.backend, title: s.title, createdAt: s.createdAt,
+      id: s.id, backend: s.backend, title: s.title, cwd: s.cwd, createdAt: s.createdAt,
       lastActivity: s.lastActivity, attached: s.ws !== null, alive: s.alive,
     };
   }

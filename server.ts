@@ -6,6 +6,7 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { handleWebSocket } from './lib/ws-handler';
 import { terminalManager } from './lib/terminal-manager';
+import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
 
 // Prefix all server logs with an ISO timestamp for easier production debugging.
@@ -52,6 +53,15 @@ if (!CC_TERMINAL_TOKEN) {
 
 app.prepare().then(async () => {
   await terminalManager.init();
+  // Re-attach transcript tracking for sessions recovered from tmux; their
+  // files were born after createdAt, so discovery matches them the same way.
+  for (const session of terminalManager.list()) {
+    transcriptHub.track(session.id, {
+      backend: session.backend,
+      cwd: session.cwd,
+      spawnTimeMs: session.createdAt,
+    });
+  }
   const handleUpgrade = app.getUpgradeHandler();
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);

@@ -1,6 +1,7 @@
 import { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { terminalManager } from './terminal-manager';
+import { transcriptHub } from './transcript-hub';
 import type { ClientMessage } from './types';
 import { DEFAULT_COLS, DEFAULT_ROWS } from './types';
 
@@ -29,6 +30,13 @@ export function handleWebSocket(ws: WebSocket): void {
           });
           terminalManager.attach(id, ws);
           currentSessionId = id;
+
+          transcriptHub.track(id, {
+            backend: info.backend,
+            cwd: info.cwd,
+            spawnTimeMs: info.createdAt,
+            resumeSessionId: msg.resumeSessionId || null,
+          });
 
           send(ws, {
             type: 'created',
@@ -74,6 +82,7 @@ export function handleWebSocket(ws: WebSocket): void {
 
         case 'kill': {
           terminalManager.kill(msg.sessionId);
+          transcriptHub.untrack(msg.sessionId);
 
           // If we killed the currently attached session, clear it
           if (currentSessionId === msg.sessionId) {
@@ -90,6 +99,35 @@ export function handleWebSocket(ws: WebSocket): void {
           break;
         }
 
+        case 'chat_attach': {
+          transcriptHub.attachChat(ws, msg.sessionId);
+          break;
+        }
+
+        case 'chat_detach': {
+          transcriptHub.detachChat(ws);
+          break;
+        }
+
+        case 'watch_status': {
+          transcriptHub.watchStatus(ws);
+          break;
+        }
+
+        case 'chat_input': {
+          const text = String(msg.text ?? '');
+          if (!text.trim()) return;
+          // Bracketed paste keeps multi-line input as one block inside the
+          // TUI; trailing CR submits it — equivalent to typing + Enter.
+          terminalManager.write(msg.sessionId, `\x1b[200~${text}\x1b[201~\r`);
+          break;
+        }
+
+        case 'interrupt': {
+          terminalManager.write(msg.sessionId, '\x1b'); // Esc interrupts both CLIs
+          break;
+        }
+
         default: {
           send(ws, { type: 'error', message: `Unknown message type: ${(msg as { type: string }).type}` });
         }
@@ -102,6 +140,7 @@ export function handleWebSocket(ws: WebSocket): void {
   });
 
   ws.on('close', () => {
+    transcriptHub.release(ws);
     if (currentSessionId) {
       terminalManager.detach(currentSessionId, ws);
       console.log(`[cc-terminal] WS closed, detached session ${currentSessionId}`);

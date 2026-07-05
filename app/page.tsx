@@ -8,6 +8,7 @@ import TokenGate from '@/components/TokenGate';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
 import FileUpload from '@/components/FileUpload';
 import DropZone from '@/components/DropZone';
+import ChatView from '@/components/ChatView';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
@@ -42,6 +43,25 @@ export default function Home() {
   const [aliveSessions, setAliveSessions] = useState<Set<string>>(new Set());
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [createOptions, setCreateOptions] = useState<TerminalCreateOptions | null>(null);
+  const [viewModes, setViewModes] = useState<Record<string, 'chat' | 'term'>>({});
+
+  // Per-session Chat/Term preference, remembered across visits
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('ccrt-view-modes');
+      if (stored) setViewModes(JSON.parse(stored));
+    } catch {
+      // Corrupt/unavailable storage — fall back to defaults
+    }
+  }, []);
+
+  const setViewMode = useCallback((sessionId: string, mode: 'chat' | 'term') => {
+    setViewModes((prev) => {
+      const next = { ...prev, [sessionId]: mode };
+      try { localStorage.setItem('ccrt-view-modes', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
 
   // Ref to the TerminalView's sendInput function
   const sendInputRef = useRef<((data: string) => void) | null>(null);
@@ -236,6 +256,10 @@ export default function Home() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeBackend = activeSession ? getBackendDisplay(normalizeBackend(activeSession.backend)) : null;
+  const isRealSession = Boolean(activeSessionId && !activeSessionId.startsWith('__new__'));
+  const activeView: 'chat' | 'term' = isRealSession
+    ? (viewModes[activeSessionId!] || 'term')
+    : 'term';
 
   // No token yet → show the access gate instead of rendering the app
   // (which would otherwise fire authenticated requests with an empty token).
@@ -308,6 +332,30 @@ export default function Home() {
           <span className="ml-2 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
             {activeSession?.title || 'CC Terminal'}
           </span>
+          {isRealSession && (
+            <div className="mr-2 shrink-0 flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden text-xs font-medium">
+              <button
+                onClick={() => setViewMode(activeSessionId!, 'chat')}
+                className={`px-2.5 py-1 transition-colors ${
+                  activeView === 'chat'
+                    ? 'bg-blue-500 text-white'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Chat
+              </button>
+              <button
+                onClick={() => setViewMode(activeSessionId!, 'term')}
+                className={`px-2.5 py-1 transition-colors border-l border-gray-300 dark:border-gray-600 ${
+                  activeView === 'term'
+                    ? 'bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900'
+                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                Term
+              </button>
+            </div>
+          )}
           {activeBackend && (
             <span className={`mr-2 shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-medium ${activeBackend.badgeClass}`}>
               {activeBackend.label}
@@ -322,30 +370,40 @@ export default function Home() {
           )}
         </div>
 
-        {/* Terminal or Welcome */}
+        {/* Chat / Terminal / Welcome */}
         <div className="flex-1 relative min-h-0">
           {activeSessionId && token ? (
-            <DropZone token={token} onFileUploaded={handleFileUploaded}>
-              <TerminalView
-                key={activeSessionId}
+            activeView === 'chat' && activeSession ? (
+              <ChatView
+                key={`chat-${activeSessionId}`}
                 sessionId={activeSessionId}
-                createOptions={createOptions}
+                backend={normalizeBackend(activeSession.backend)}
                 token={token}
-                theme={resolved}
-                onSessionCreated={handleSessionCreated}
-                onSessionExited={handleSessionExited}
-                onInput={handleTerminalInput}
+                onRequestTerm={() => setViewMode(activeSessionId, 'term')}
               />
-            </DropZone>
+            ) : (
+              <DropZone token={token} onFileUploaded={handleFileUploaded}>
+                <TerminalView
+                  key={activeSessionId}
+                  sessionId={activeSessionId}
+                  createOptions={createOptions}
+                  token={token}
+                  theme={resolved}
+                  onSessionCreated={handleSessionCreated}
+                  onSessionExited={handleSessionExited}
+                  onInput={handleTerminalInput}
+                />
+              </DropZone>
+            )
           ) : (
             <HistoryHome token={token} onNewTerminal={handleNewSession} />
           )}
         </div>
 
-        {/* Key bar (touch devices only) */}
+        {/* Key bar (touch devices, terminal view only — chat has its own input) */}
         <TerminalKeyBar
           onInput={handleKeyBarInput}
-          visible={isTouchDevice && !!activeSessionId}
+          visible={isTouchDevice && !!activeSessionId && activeView === 'term'}
         />
       </div>
     </div>

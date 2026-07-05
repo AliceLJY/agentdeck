@@ -10,15 +10,17 @@
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
-    "@xterm/xterm": "^6.0.0",
     "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-webgl": "^0.19.0",
     "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
     "idb": "^8.0.3",
     "next": "16.2.2",
     "node-pty": "^1.1.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "uuid": "^13.0.0",
     "ws": "^8.20.0"
   },
