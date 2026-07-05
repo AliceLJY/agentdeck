@@ -565,7 +565,11 @@ async function parseSessionWithMessages(candidate: SessionCandidate): Promise<{
       continue;
     }
 
-    if (typeof event.cwd === 'string' && event.cwd) cwd = event.cwd;
+    // Keep the FIRST cwd — that's where the CLI was launched and where the
+    // transcript physically lives. Later lines carry the cwd of the moment
+    // (the agent may cd around mid-session), and using those misfiles global
+    // sessions under project dirs and breaks resume's directory match.
+    if (!cwd && typeof event.cwd === 'string' && event.cwd) cwd = event.cwd;
     if (typeof event.sessionId === 'string' && event.sessionId) sessionId = event.sessionId;
 
     const timestamp = typeof event.timestamp === 'string'

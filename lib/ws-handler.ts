@@ -80,10 +80,9 @@ export function handleWebSocket(ws: WebSocket): void {
         }
 
         case 'resize': {
-          if (!currentSessionId) {
-            send(ws, { type: 'error', message: 'No session attached.' });
-            return;
-          }
+          // Resize events fire from ResizeObserver even when create failed —
+          // noise, not a user action; drop silently.
+          if (!currentSessionId) return;
           terminalManager.resize(currentSessionId, msg.cols, msg.rows, ws);
           break;
         }
