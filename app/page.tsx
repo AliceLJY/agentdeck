@@ -15,6 +15,7 @@ import { useTerminalSessions } from '@/hooks/useTerminalSessions';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
 import type {
   SessionInfo,
+  SessionStatus,
   ServerMessage,
   TerminalCreateOptions,
   TerminalSessionMeta,
@@ -93,67 +94,98 @@ export default function Home() {
     setIsTouchDevice(navigator.maxTouchPoints > 0);
   }, []);
 
+  // Live per-session status (working/idle + current action) from the hub
+  const [statuses, setStatuses] = useState<Record<string, SessionStatus>>({});
+
   // Reconcile client IDB with server sessions (removes stale entries after restart)
-  const reconcileRef = useRef<(() => void) | null>(null);
-  reconcileRef.current = () => {
-    if (!token) return;
+  const handleServerSessionsRef = useRef<(list: SessionInfo[]) => void>(() => {});
+  handleServerSessionsRef.current = (list) => {
+    const serverIds = new Set(list.map((s) => s.id));
+    const alive = new Set(list.filter((s) => s.alive).map((s) => s.id));
+    setAliveSessions(alive);
 
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(
-      `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
-    );
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'list' }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data) as ServerMessage;
-        if (msg.type === 'sessions') {
-          const serverIds = new Set(msg.list.map((s: SessionInfo) => s.id));
-          const alive = new Set(
-            msg.list.filter((s: SessionInfo) => s.alive).map((s: SessionInfo) => s.id),
-          );
-          setAliveSessions(alive);
-
-          // Remove stale sessions from IDB that server doesn't know about
-          let hadStale = false;
-          sessions.forEach((s) => {
-            if (!serverIds.has(s.id)) {
-              remove(s.id);
-              hadStale = true;
-            }
-          });
-
-          // If all sessions were stale and active session is dead, reset to welcome
-          if (hadStale && activeSessionId && !serverIds.has(activeSessionId)) {
-            setActiveSessionId(null);
-          }
-        }
-      } catch {
-        // Ignore parse errors
+    // Remove stale sessions from IDB that server doesn't know about
+    let hadStale = false;
+    sessions.forEach((s) => {
+      if (!serverIds.has(s.id)) {
+        remove(s.id);
+        hadStale = true;
       }
-      ws.close();
-    };
+    });
 
-    ws.onerror = () => {
-      ws.close();
-    };
+    // If all sessions were stale and active session is dead, reset to welcome
+    if (hadStale && activeSessionId && !serverIds.has(activeSessionId)) {
+      setActiveSessionId(null);
+    }
   };
 
-  // Run reconciliation on mount
+  // Persistent control socket: session reconcile + live status feed for the
+  // sidebar/rail. Replaces the old fire-and-forget reconcile connection.
+  const controlWsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
-    reconcileRef.current?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+    if (!token) return;
+    let disposed = false;
+    let attempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Also reconcile when user returns to tab (catches server restart while away)
-  useEffect(() => {
-    const onFocus = () => reconcileRef.current?.();
+    const connect = () => {
+      if (disposed) return;
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(
+        `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
+      );
+      controlWsRef.current = ws;
+
+      ws.onopen = () => {
+        attempts = 0;
+        ws.send(JSON.stringify({ type: 'list' }));
+        ws.send(JSON.stringify({ type: 'watch_status' }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data) as ServerMessage;
+          if (msg.type === 'sessions') {
+            handleServerSessionsRef.current(msg.list);
+          } else if (msg.type === 'status_all') {
+            setStatuses(Object.fromEntries(msg.statuses.map((s) => [s.sessionId, s])));
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      };
+
+      ws.onclose = () => {
+        controlWsRef.current = null;
+        if (disposed) return;
+        const delay = Math.min(15000, Math.pow(2, attempts) * 1000);
+        attempts++;
+        retryTimer = setTimeout(connect, delay);
+      };
+    };
+
+    connect();
+
+    // Returning to the tab: refresh the list immediately (or reconnect now)
+    const onFocus = () => {
+      const ws = controlWsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'list' }));
+      } else if (retryTimer) {
+        clearTimeout(retryTimer);
+        connect();
+      }
+    };
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, []);
+
+    return () => {
+      disposed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      window.removeEventListener('focus', onFocus);
+      controlWsRef.current?.close();
+      controlWsRef.current = null;
+    };
+  }, [token]);
 
   // ── Session lifecycle handlers ──
 
@@ -283,6 +315,7 @@ export default function Home() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           aliveSessions={aliveSessions}
+          workingSessions={new Set(Object.values(statuses).filter((s) => s.state === 'working').map((s) => s.sessionId))}
           onSelect={handleSelectSession}
           onExpand={() => setSidebarOpen(true)}
           onCreate={handleNewSession}
@@ -309,6 +342,7 @@ export default function Home() {
           sessions={sessions}
           activeSessionId={activeSessionId}
           aliveSessions={aliveSessions}
+          statuses={statuses}
           onSelect={handleSelectSession}
           onDelete={handleDeleteSession}
           onCreate={handleNewSession}

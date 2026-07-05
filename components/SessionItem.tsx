@@ -1,12 +1,13 @@
 'use client';
 
-import type { TerminalSessionMeta } from '@/lib/types';
+import type { SessionStatus, TerminalSessionMeta } from '@/lib/types';
 import { getBackendDisplay, normalizeBackend } from '@/lib/backends';
 
 interface SessionItemProps {
   session: TerminalSessionMeta;
   isActive: boolean;
   isAlive: boolean;
+  status?: SessionStatus;
   onSelect: () => void;
   onDelete: () => void;
 }
@@ -30,11 +31,14 @@ export default function SessionItem({
   session,
   isActive,
   isAlive,
+  status,
   onSelect,
   onDelete,
 }: SessionItemProps) {
   const backend = normalizeBackend(session.backend);
   const display = getBackendDisplay(backend);
+  const isWorking = isAlive && status?.state === 'working';
+  const title = status?.aiTitle || session.title;
 
   return (
     <div
@@ -51,25 +55,36 @@ export default function SessionItem({
       <div
         className={`w-2 h-2 rounded-full flex-shrink-0 ${
           isAlive
-            ? 'bg-green-500'
+            ? `bg-green-500 ${isWorking ? 'animate-pulse' : ''}`
             : 'bg-gray-400 dark:bg-gray-600'
         }`}
-        title={isAlive ? 'Running' : 'Exited'}
+        title={isAlive ? (isWorking ? 'Working' : 'Running') : 'Exited'}
       />
 
       {/* Session info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <div className="text-sm font-medium truncate text-gray-800 dark:text-gray-200">
-            {session.title}
+            {title}
           </div>
           <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium ${display.badgeClass}`}>
             {display.label}
           </span>
         </div>
-        <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          {formatRelativeTime(session.lastSeen)}
-        </div>
+        {isWorking && status?.currentAction ? (
+          <div className="text-xs italic text-green-600 dark:text-green-400 mt-0.5 truncate">
+            {status.currentAction}
+          </div>
+        ) : status?.lastReplyPreview ? (
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">
+            {status.lastReplyAt ? `${display.label} replied ${formatRelativeTime(Date.parse(status.lastReplyAt))} · ` : ''}
+            {status.lastReplyPreview}
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {formatRelativeTime(session.lastSeen)}
+          </div>
+        )}
       </div>
 
       {/* Delete button */}

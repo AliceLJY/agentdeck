@@ -1,6 +1,6 @@
 'use client';
 
-import type { TerminalSessionMeta } from '@/lib/types';
+import type { SessionStatus, TerminalSessionMeta } from '@/lib/types';
 import SessionItem from './SessionItem';
 import ThemeToggle from './ThemeToggle';
 
@@ -10,6 +10,7 @@ interface SidebarProps {
   sessions: TerminalSessionMeta[];
   activeSessionId: string | null;
   aliveSessions: Set<string>;
+  statuses?: Record<string, SessionStatus>;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onCreate: () => void;
@@ -22,6 +23,7 @@ export default function Sidebar({
   sessions,
   activeSessionId,
   aliveSessions,
+  statuses,
   onSelect,
   onDelete,
   onCreate,
@@ -79,6 +81,7 @@ export default function Sidebar({
               session={session}
               isActive={session.id === activeSessionId}
               isAlive={aliveSessions.has(session.id)}
+              status={statuses?.[session.id]}
               onSelect={() => onSelect(session.id)}
               onDelete={() => onDelete(session.id)}
             />
