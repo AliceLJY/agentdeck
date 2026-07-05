@@ -8,6 +8,7 @@ import {
   normalizeBackend,
   type HistoryBackend,
 } from './backends';
+import { claudeProjectsRoot, projectIdFromCwd } from './history-index';
 import { RingBuffer } from './ring-buffer';
 import { SessionStore } from './session-store';
 import {
@@ -141,6 +142,25 @@ class TerminalManager {
     const backend = normalizeBackend(options.backend);
     const title = this.resolveTitle(options.title, now);
     const resumeId = this.resolveResumeId(options.resumeSessionId);
+
+    // `claude --resume` looks the session up under the CURRENT cwd's project
+    // dir. Resuming from the wrong directory makes the CLI print "No
+    // conversation found" and exit — surface a real error instead.
+    if (resumeId) {
+      if (options.cwd && cwd !== options.cwd) {
+        throw new Error(
+          `Cannot resume here: working directory ${options.cwd} does not exist on this machine.`,
+        );
+      }
+      if (backend === 'claude') {
+        const transcript = path.join(claudeProjectsRoot(), projectIdFromCwd(cwd), `${resumeId}.jsonl`);
+        if (!existsSync(transcript)) {
+          throw new Error(
+            `Cannot resume: session ${resumeId.slice(0, 8)}… has no transcript under ${cwd} — it may belong to another machine or directory.`,
+          );
+        }
+      }
+    }
     const backendExecutable = this.findBackendExecutable(backend);
     const backendArgs = buildBackendCommand({
       backend,
