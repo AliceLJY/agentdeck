@@ -141,6 +141,7 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist
 | `CC_TERMINAL_TOKEN` | （必填） | 认证 token；开发时直接注入，launchd 模式由钥匙串包装器注入 |
 | `PORT` | `3109` | 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 使用优化构建 |
+| `CC_TERMINAL_TIME_ZONE` | `Asia/Singapore` | 对话记录时间戳使用的 IANA 时区 |
 
 Session 参数（`lib/types.ts`）：
 

@@ -80,7 +80,7 @@ async function discoverClaude(
       continue;
     }
 
-    const born = fileStat.birthtimeMs || fileStat.mtimeMs;
+    const born = conservativeBirthTime(fileStat);
     if (born >= target.spawnTimeMs - GRACE_MS) {
       const distance = Math.abs(born - target.spawnTimeMs);
       if (!best || distance < best.distance) best = { filePath, distance };
@@ -131,7 +131,7 @@ async function discoverCodex(
         continue;
       }
 
-      const born = fileStat.birthtimeMs || fileStat.mtimeMs;
+      const born = conservativeBirthTime(fileStat);
       const isResumeTarget = Boolean(
         target.resumeSessionId && entry.name.includes(target.resumeSessionId),
       );
@@ -158,4 +158,15 @@ function dayDir(root: string, ms: number): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return path.join(root, yyyy, mm, dd);
+}
+
+/**
+ * Some filesystems report a creation time that tests and restore tools cannot
+ * backdate even when mtime is old. Requiring both signals to be fresh prevents
+ * a stale transcript from looking newly created on Linux while preserving the
+ * normal macOS birthtime behavior.
+ */
+function conservativeBirthTime(fileStat: { birthtimeMs: number; mtimeMs: number }): number {
+  const birthtime = fileStat.birthtimeMs > 0 ? fileStat.birthtimeMs : fileStat.mtimeMs;
+  return Math.min(birthtime, fileStat.mtimeMs);
 }

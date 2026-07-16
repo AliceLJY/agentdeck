@@ -141,6 +141,7 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 | `CC_TERMINAL_TOKEN` | (required) | Auth token; supplied directly for development or by the Keychain launchd wrapper |
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
+| `CC_TERMINAL_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |
 
 Session limits (in `lib/types.ts`):
 
