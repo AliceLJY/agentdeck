@@ -73,17 +73,16 @@ git clone https://github.com/AliceLJY/cc-remote-term.git
 cd cc-remote-term
 npm install
 
-# 生成随机 token
-export CC_TERMINAL_TOKEN=$(openssl rand -hex 24)
-echo "CC_TERMINAL_TOKEN=$CC_TERMINAL_TOKEN" > .env.local
-echo "你的 token: $CC_TERMINAL_TOKEN"
+# 本地开发：生成私有 env 文件，不在终端打印 token
+umask 077
+printf 'CC_TERMINAL_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.local
 
 # 构建并启动
 npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3109?token=你的TOKEN`。token 会存在浏览器里，之后可不带 `?token=` 直接打开；不带 token 打开会显示登录框。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Codex 筛选切换新终端使用的后端。
+浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Codex 筛选切换新终端使用的后端。
 
 ### 远程访问（Tailscale）
 
@@ -93,11 +92,17 @@ npm start
 [cc-terminal] Tailscale: http://100.x.x.x:3109
 ```
 
-Tailnet 内任意设备访问：`http://100.x.x.x:3109?token=你的TOKEN`
+Tailnet 内设备访问 `http://100.x.x.x:3109` 后，在登录框粘贴 token。不要把 token 放进 URL，避免进入浏览器历史和日志。
 
 ### 开机自启（macOS launchd）
 
-把下面这个 plist 写进 `~/Library/LaunchAgents/com.cc-remote-term.web.plist`，然后 `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist`：
+先把随机 token 存进 macOS 登录钥匙串。这个命令会把它复制到剪贴板但不会在终端打印，随后请把它粘贴进隐藏的钥匙串提示（首次设置粘贴两次，后续轮换一次）：
+
+```bash
+npm run token:init
+```
+
+再把下面这个 plist 写进 `~/Library/LaunchAgents/com.cc-remote-term.web.plist`。plist 本身不含 token；启动包装器会在进程启动时从钥匙串读取。
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -108,13 +113,12 @@ Tailnet 内任意设备访问：`http://100.x.x.x:3109?token=你的TOKEN`
   <key>WorkingDirectory</key><string>/Users/你的用户名/Projects/cc-remote-term</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/npm</string>
-    <string>start</string>
+    <string>/Users/你的用户名/Projects/cc-remote-term/scripts/run-launchd.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>CC_TERMINAL_TOKEN</key><string>你的TOKEN</string>
     <key>NODE_ENV</key><string>production</string>
+    <key>PORT</key><string>3109</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -124,11 +128,17 @@ Tailnet 内任意设备访问：`http://100.x.x.x:3109?token=你的TOKEN`
 </plist>
 ```
 
+```bash
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist
+```
+
+其他设备需要当前 token 时运行 `npm run token:copy`；需要轮换时再次运行 `npm run token:init`，再重启 LaunchAgent。两个命令都不会打印 token。
+
 ## 配置项
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `CC_TERMINAL_TOKEN` | （必填） | WebSocket 认证 token |
+| `CC_TERMINAL_TOKEN` | （必填） | 认证 token；开发时直接注入，launchd 模式由钥匙串包装器注入 |
 | `PORT` | `3109` | 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 使用优化构建 |
 

@@ -8,6 +8,8 @@
     "test": "node --import tsx --test",
     "typecheck": "tsc --noEmit",
     "start": "NODE_ENV=production tsx server.ts",
+    "token:init": "bash scripts/keychain-token-init.sh",
+    "token:copy": "bash scripts/keychain-token-copy.sh",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
@@ -16,24 +18,27 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "idb": "^8.0.3",
-    "next": "16.2.2",
+    "next": "16.2.10",
     "node-pty": "^1.1.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "uuid": "^13.0.0",
-    "ws": "^8.20.0"
+    "uuid": "^13.0.2",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8",
-    "tailwindcss": "^4",
-    "tsx": "^4",
+    "tailwindcss": "^4.3.3",
+    "tsx": "^4.23.1",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "8.5.19"
   }
 }

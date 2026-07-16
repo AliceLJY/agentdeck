@@ -73,17 +73,16 @@ git clone https://github.com/AliceLJY/cc-remote-term.git
 cd cc-remote-term
 npm install
 
-# Generate a random token
-export CC_TERMINAL_TOKEN=$(openssl rand -hex 24)
-echo "CC_TERMINAL_TOKEN=$CC_TERMINAL_TOKEN" > .env.local
-echo "Your token: $CC_TERMINAL_TOKEN"
+# Local development: create a private env file without printing the token
+umask 077
+printf 'CC_TERMINAL_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.local
 
 # Build & start
 npm run build
 npm start
 ```
 
-Open `http://localhost:3109?token=YOUR_TOKEN` in your browser. The token is saved in your browser, so afterwards you can open the page without `?token=`. Opening with no token shows a login prompt. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Codex filter selects which backend new terminals start with.
+Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Codex filter selects which backend new terminals start with.
 
 ### Remote Access (Tailscale)
 
@@ -93,11 +92,17 @@ If you have [Tailscale](https://tailscale.com/) installed, the server auto-detec
 [cc-terminal] Tailscale: http://100.x.x.x:3109
 ```
 
-Access from any device on your Tailnet: `http://100.x.x.x:3109?token=YOUR_TOKEN`
+Access from any device on your Tailnet at `http://100.x.x.x:3109`, then paste the token into the login prompt. Avoid putting tokens in URLs because URLs can enter browser history and logs.
 
 ### Auto-start (macOS launchd)
 
-Drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist`, then `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist`:
+Generate a token in the macOS login Keychain first. The command copies it to the clipboard without printing it, then asks you to paste it into the hidden Keychain prompt (twice on first setup, once when rotating):
+
+```bash
+npm run token:init
+```
+
+Then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist` and bootstrap it. The plist contains no token; the wrapper reads it from Keychain at process start.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -108,13 +113,12 @@ Drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist
   <key>WorkingDirectory</key><string>/Users/YOU/Projects/cc-remote-term</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/opt/homebrew/bin/npm</string>
-    <string>start</string>
+    <string>/Users/YOU/Projects/cc-remote-term/scripts/run-launchd.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>CC_TERMINAL_TOKEN</key><string>YOUR_TOKEN_HERE</string>
     <key>NODE_ENV</key><string>production</string>
+    <key>PORT</key><string>3109</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -124,11 +128,17 @@ Drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist
 </plist>
 ```
 
+```bash
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist
+```
+
+Use `npm run token:copy` whenever another device needs the current token. Use `npm run token:init` again to rotate it, then restart the LaunchAgent; neither command prints the value.
+
 ## Configuration
 
 | Environment Variable | Default | Description |
 |---|---|---|
-| `CC_TERMINAL_TOKEN` | (required) | Auth token for WebSocket connections |
+| `CC_TERMINAL_TOKEN` | (required) | Auth token; supplied directly for development or by the Keychain launchd wrapper |
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
 

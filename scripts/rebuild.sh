@@ -8,9 +8,12 @@ echo "[cc-terminal] Building..."
 npm run build
 
 echo "[cc-terminal] Restarting..."
-# Kill existing process if running
-pkill -f "tsx server.ts" 2>/dev/null || true
-sleep 1
-
-NODE_ENV=production nohup tsx server.ts > /tmp/cc-terminal.log 2>&1 &
-echo "[cc-terminal] Started (PID: $!). Logs: /tmp/cc-terminal.log"
+LABEL="com.cc-remote-term.web"
+DOMAIN="gui/$(id -u)"
+if launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; then
+  launchctl kickstart -k "$DOMAIN/$LABEL"
+  echo "[cc-terminal] Restart requested through launchd."
+else
+  echo "[cc-terminal] $LABEL is not loaded; bootstrap the LaunchAgent first." >&2
+  exit 1
+fi
