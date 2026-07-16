@@ -96,13 +96,13 @@ Access from any device on your Tailnet at `http://100.x.x.x:3109`, then paste th
 
 ### Auto-start (macOS launchd)
 
-Generate a token in the macOS login Keychain first. The command copies it to the clipboard without printing it, then asks you to paste it into the hidden Keychain prompt (twice on first setup, once when rotating):
+Generate a token in a private file outside the repository first. The command creates `~/.config/cc-remote-term/token` with mode `600` inside a mode-`700` directory and copies the token to the clipboard without printing it:
 
 ```bash
 npm run token:init
 ```
 
-Then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist` and bootstrap it. The plist contains no token; the wrapper reads it from Keychain at process start.
+Then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist` and bootstrap it. The plist contains no token; the wrapper validates the private file's type, owner, mode, and format before reading it at process start.
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -138,7 +138,8 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 
 | Environment Variable | Default | Description |
 |---|---|---|
-| `CC_TERMINAL_TOKEN` | (required) | Auth token; supplied directly for development or by the Keychain launchd wrapper |
+| `CC_TERMINAL_TOKEN` | (required) | Auth token; supplied directly for development or by the private-file launchd wrapper |
+| `CC_TERMINAL_TOKEN_FILE` | `~/.config/cc-remote-term/token` | Private launchd token file; must be a user-owned regular file with mode `600` |
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
 | `CC_TERMINAL_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |

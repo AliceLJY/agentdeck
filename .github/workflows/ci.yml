@@ -22,3 +22,4 @@ jobs:
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
       - run: bash -n scripts/*.sh
+      - run: node --check scripts/token-init.mjs

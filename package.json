@@ -8,8 +8,8 @@
     "test": "node --import tsx --test",
     "typecheck": "tsc --noEmit",
     "start": "NODE_ENV=production tsx server.ts",
-    "token:init": "bash scripts/keychain-token-init.sh",
-    "token:copy": "bash scripts/keychain-token-copy.sh",
+    "token:init": "node scripts/token-init.mjs",
+    "token:copy": "bash scripts/token-copy.sh",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
