@@ -9,7 +9,7 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 ## Features
 
 - **Two backends, one UI** — Spawn a Claude Code session or a Codex session from the same browser; each session is tagged with its backend (blue for Claude, emerald for Codex)
-- **History browser** — Cross-backend history view: browse every Claude Code and Codex session that exists on your disk, side by side, and resume any of them in one click
+- **History browser** — Cross-backend history view for up to the 25 most recently active sessions in the current backend / project filter. Search filters that loaded result set (there is no pagination yet); any listed session can be resumed in one click
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
 - **Chat view** — Flip any live session into a structured chat: message bubbles, rendered Markdown, collapsible tool-call strips, auto-scroll that pauses when you scroll up. It reads the CLI's own transcript file, so it holds the complete, scrollable record — the terminal viewport can truncate a long reply, the chat view never does. One tap back to the real terminal for TUI prompts and pickers.
 - **Send & interrupt from chat** — Type and send straight from the chat view (it writes to the PTY, same as typing in the terminal); a stop button interrupts the running agent. Attach an image or file inline — send a phone screenshot and the agent reads it.

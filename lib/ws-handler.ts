@@ -1,15 +1,38 @@
 import { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
-import { terminalManager } from './terminal-manager';
-import { transcriptHub } from './transcript-hub';
+import type { TerminalManager } from './terminal-manager';
+import type { TranscriptHub } from './transcript-hub';
 import type { ClientMessage } from './types';
 import { DEFAULT_COLS, DEFAULT_ROWS } from './types';
+
+type TerminalManagerPort = Pick<
+  TerminalManager,
+  'attach' | 'create' | 'detach' | 'kill' | 'list' | 'resize' | 'write'
+>;
+
+type TranscriptHubPort = Pick<
+  TranscriptHub,
+  'attachChat' | 'detachChat' | 'nudgeDiscovery' | 'release' | 'track' | 'untrack' | 'watchStatus'
+>;
+
+export interface WebSocketHandlerDependencies {
+  terminalManager: TerminalManagerPort;
+  transcriptHub: TranscriptHubPort;
+  schedule?: (callback: () => void, delayMs: number) => void;
+}
 
 /**
  * Handles a WebSocket connection for the terminal protocol.
  * One WS per browser tab. Multiple sessions share the WS via attach/detach.
  */
-export function handleWebSocket(ws: WebSocket): void {
+export function handleWebSocket(
+  ws: WebSocket,
+  dependencies: WebSocketHandlerDependencies,
+): void {
+  const { terminalManager, transcriptHub } = dependencies;
+  const schedule = dependencies.schedule ?? ((callback, delayMs) => {
+    setTimeout(callback, delayMs);
+  });
   let currentSessionId: string | null = null;
 
   ws.on('message', (raw) => {
@@ -60,7 +83,7 @@ export function handleWebSocket(ws: WebSocket): void {
             terminalManager.detach(currentSessionId, ws);
           }
 
-          terminalManager.attach(msg.sessionId, ws);
+          terminalManager.attach(msg.sessionId, ws, msg.streamOutput !== false);
           currentSessionId = msg.sessionId;
 
           console.log(`[cc-terminal] WS: attached to session ${msg.sessionId}`);
@@ -88,7 +111,7 @@ export function handleWebSocket(ws: WebSocket): void {
         }
 
         case 'kill': {
-          terminalManager.kill(msg.sessionId);
+          terminalManager.kill(msg.sessionId, ws);
           transcriptHub.untrack(msg.sessionId);
 
           // If we killed the currently attached session, clear it
@@ -107,12 +130,21 @@ export function handleWebSocket(ws: WebSocket): void {
         }
 
         case 'chat_attach': {
+          if (currentSessionId) {
+            terminalManager.detach(currentSessionId, ws);
+          }
+          terminalManager.attach(msg.sessionId, ws, false);
+          currentSessionId = msg.sessionId;
           transcriptHub.attachChat(ws, msg.sessionId);
           break;
         }
 
         case 'chat_detach': {
           transcriptHub.detachChat(ws);
+          if (currentSessionId) {
+            terminalManager.detach(currentSessionId, ws);
+            currentSessionId = null;
+          }
           break;
         }
 
@@ -129,16 +161,20 @@ export function handleWebSocket(ws: WebSocket): void {
           // TUI. The submitting CR must come as a SEPARATE write a beat
           // later — glued to the paste it gets swallowed with it (verified
           // against the Claude Code TUI).
-          terminalManager.write(sessionId, `\x1b[200~${text}\x1b[201~`);
-          setTimeout(() => {
-            try { terminalManager.write(sessionId, '\r'); } catch {}
-            transcriptHub.nudgeDiscovery(sessionId);
+          terminalManager.write(sessionId, `\x1b[200~${text}\x1b[201~`, ws);
+          schedule(() => {
+            try {
+              terminalManager.write(sessionId, '\r', ws);
+              transcriptHub.nudgeDiscovery(sessionId);
+            } catch (err) {
+              sendError(ws, err);
+            }
           }, 150);
           break;
         }
 
         case 'interrupt': {
-          terminalManager.write(msg.sessionId, '\x1b'); // Esc interrupts both CLIs
+          terminalManager.write(msg.sessionId, '\x1b', ws); // Esc interrupts both CLIs
           break;
         }
 
@@ -147,9 +183,7 @@ export function handleWebSocket(ws: WebSocket): void {
         }
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      console.error('[cc-terminal] WS message error:', message);
-      send(ws, { type: 'error', message });
+      sendError(ws, err);
     }
   });
 
@@ -165,6 +199,12 @@ export function handleWebSocket(ws: WebSocket): void {
   ws.on('error', (err) => {
     console.error('[cc-terminal] WS error:', err.message);
   });
+}
+
+function sendError(ws: WebSocket, err: unknown): void {
+  const message = err instanceof Error ? err.message : 'Unknown error';
+  console.error('[cc-terminal] WS message error:', message);
+  send(ws, { type: 'error', message });
 }
 
 function send(ws: WebSocket, msg: Record<string, unknown>): void {

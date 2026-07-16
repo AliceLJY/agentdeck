@@ -32,6 +32,7 @@ interface TerminalSession {
   resumeSessionId: string | null;
   pty: pty.IPty | null;          // null when recovered but client hasn't attached yet
   ws: WebSocket | null;
+  streamOutput: boolean;
   buffer: RingBuffer;
   createdAt: number;
   lastActivity: number;
@@ -40,19 +41,31 @@ interface TerminalSession {
   dataDisposable: pty.IDisposable | null;
 }
 
-class TerminalManager {
+export type TerminalManagerStore = Pick<
+  SessionStore,
+  'loadAll' | 'remove' | 'save' | 'updateTitle'
+>;
+
+export interface TerminalManagerOptions {
+  home?: string;
+  store?: TerminalManagerStore;
+  tmuxPath?: string;
+  startCleanupTimer?: boolean;
+}
+
+export class TerminalManager {
   private sessions: Map<string, TerminalSession> = new Map();
-  private cleanupTimer: ReturnType<typeof setInterval>;
-  private store: SessionStore;
+  private cleanupTimer: ReturnType<typeof setInterval> | null;
+  private store: TerminalManagerStore;
   private tmuxPath: string;
   private home: string;
   private tmuxConf: string;
   private enrichedEnv: Record<string, string>;
 
-  constructor() {
-    this.home = process.env.HOME || '/Users/USER';
-    this.store = new SessionStore();
-    this.tmuxPath = this.findTmux();
+  constructor(options: TerminalManagerOptions = {}) {
+    this.home = options.home ?? process.env.HOME ?? '/Users/USER';
+    this.store = options.store ?? new SessionStore();
+    this.tmuxPath = options.tmuxPath ?? this.findTmux();
     this.tmuxConf = path.join(process.cwd(), 'lib', 'tmux.conf');
     this.enrichedEnv = {
       ...(process.env as Record<string, string>),
@@ -61,7 +74,9 @@ class TerminalManager {
       PATH: `${this.home}/.local/bin:${this.home}/.bun/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
     };
 
-    this.cleanupTimer = setInterval(() => this.cleanupIdle(), 5 * 60 * 1000);
+    this.cleanupTimer = options.startCleanupTimer === false
+      ? null
+      : setInterval(() => this.cleanupIdle(), 5 * 60 * 1000);
   }
 
   // ─── Startup Recovery ───
@@ -101,6 +116,7 @@ class TerminalManager {
           resumeSessionId: meta?.resumeSessionId || null,
           pty: null,
           ws: null,
+          streamOutput: false,
           buffer: new RingBuffer(),
           createdAt: meta?.createdAt || Date.now(),
           lastActivity: Date.now(),
@@ -189,6 +205,7 @@ class TerminalManager {
       resumeSessionId: resumeId,
       pty: ptyProcess,
       ws: null,
+      streamOutput: false,
       buffer: new RingBuffer(),
       createdAt: now,
       lastActivity: now,
@@ -210,12 +227,12 @@ class TerminalManager {
     return this.toSessionInfo(session);
   }
 
-  attach(sessionId: string, ws: WebSocket): void {
+  attach(sessionId: string, ws: WebSocket, streamOutput = true): void {
     const session = this.getSession(sessionId);
 
     // If another client already owns this session, tell it that it has been
-    // taken over and demote it to read-only — its input is ignored from now on
-    // (see write()). Without this, the old device keeps writing blind.
+    // taken over and demote it to read-only — mutating operations are rejected
+    // from now on (see assertOwner()). Without this, the old device writes blind.
     if (session.ws && session.ws !== ws && session.ws.readyState === WebSocket.OPEN) {
       try { session.ws.send(JSON.stringify({ type: 'taken_over' })); } catch {}
     }
@@ -228,32 +245,35 @@ class TerminalManager {
       console.log(`[cc-terminal] Spawned PTY bridge for recovered session: ${sessionId}`);
     }
 
-    // Replay ring buffer
-    const buffered = session.buffer.read();
-    if (buffered.length > 0) {
-      ws.send(JSON.stringify({ type: 'output', data: buffered }));
+    // Terminal views receive the raw PTY stream (including replay). Chat and
+    // control sockets only claim ownership; their transcript/status channels
+    // already carry what they render.
+    if (streamOutput) {
+      const buffered = session.buffer.read();
+      if (buffered.length > 0) {
+        ws.send(JSON.stringify({ type: 'output', data: buffered }));
+      }
     }
 
     session.ws = ws;
+    session.streamOutput = streamOutput;
     session.lastActivity = Date.now();
   }
 
-  detach(sessionId: string, ws?: WebSocket): void {
+  detach(sessionId: string, ws: WebSocket): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     // Only the current owner may detach. Prevents a stale connection's close
     // (after it was taken over) from clearing the new owner's ws.
-    if (ws && session.ws !== ws) return;
+    if (session.ws !== ws) return;
     session.ws = null;
+    session.streamOutput = false;
     session.lastActivity = Date.now();
   }
 
-  write(sessionId: string, data: string, ws?: WebSocket): void {
+  write(sessionId: string, data: string, ws: WebSocket): void {
     const session = this.getSession(sessionId);
-
-    // Ignore input from a client that is no longer the attached owner
-    // (another device took over this session) — prevents blind input.
-    if (ws && session.ws && ws !== session.ws) return;
+    this.assertOwner(session, ws);
 
     // Auto-detect title from first input. Strip escape sequences and control
     // chars first so bracketed-paste wrappers (chat input) and bare Esc
@@ -276,11 +296,9 @@ class TerminalManager {
     }
   }
 
-  resize(sessionId: string, cols: number, rows: number, ws?: WebSocket): void {
+  resize(sessionId: string, cols: number, rows: number, ws: WebSocket): void {
     const session = this.getSession(sessionId);
-    // Ignore resize from a non-owner (taken-over) client so it can't reshape
-    // the active owner's terminal.
-    if (ws && session.ws && ws !== session.ws) return;
+    this.assertOwner(session, ws);
     if (session.pty) {
       session.pty.resize(cols, rows);
     }
@@ -289,9 +307,14 @@ class TerminalManager {
     session.lastActivity = Date.now();
   }
 
-  kill(sessionId: string): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
+  kill(sessionId: string, ws: WebSocket): void {
+    const session = this.getSession(sessionId);
+    this.assertOwner(session, ws);
+    this.killSession(session);
+  }
+
+  private killSession(session: TerminalSession): void {
+    const sessionId = session.id;
 
     console.log(`[cc-terminal] Killing: ${sessionId}`);
 
@@ -347,7 +370,7 @@ class TerminalManager {
         .replace(/\x1b\[=[\d;]*c/g, '');
       if (cleaned.length === 0) return;
       session.buffer.write(cleaned);
-      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+      if (session.ws && session.streamOutput && session.ws.readyState === WebSocket.OPEN) {
         session.ws.send(JSON.stringify({ type: 'output', data: cleaned }));
       }
     });
@@ -426,6 +449,12 @@ class TerminalManager {
     return session;
   }
 
+  private assertOwner(session: TerminalSession, ws: WebSocket): void {
+    if (session.ws !== ws) {
+      throw new Error(`Session ${session.id} is not attached to this connection.`);
+    }
+  }
+
   private toSessionInfo(s: TerminalSession): SessionInfo {
     return {
       id: s.id, backend: s.backend, title: s.title, cwd: s.cwd,
@@ -480,13 +509,13 @@ class TerminalManager {
     for (const [id, s] of this.sessions.entries()) {
       if (!s.ws && (now - s.lastActivity) > IDLE_TIMEOUT) {
         console.log(`[cc-terminal] Cleaning up idle session: ${id}`);
-        this.kill(id);
+        this.killSession(s);
       }
     }
   }
 
   destroy(): void {
-    clearInterval(this.cleanupTimer);
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
     // Kill bridges but leave tmux alive for recovery
     for (const s of this.sessions.values()) {
       if (s.pty) { try { s.pty.kill(); } catch {} }
@@ -495,8 +524,6 @@ class TerminalManager {
     this.sessions.clear();
   }
 }
-
-export const terminalManager = new TerminalManager();
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;

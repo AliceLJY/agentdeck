@@ -52,10 +52,10 @@
 ## WS 协议扩展(全部走现有 /ws/terminal,token 鉴权不变)
 
 Client→Server:
-- `chat_attach { sessionId }` / `chat_detach {}` — 订阅某 session 的对话流(独立 WS,不占终端 attach 席位、不触发 taken_over)
+- `chat_attach { sessionId }` / `chat_detach {}` — 订阅某 session 的对话流；同一 WS 同时取得 / 释放终端 attachment，必要时触发 takeover
 - `watch_status {}` — 订阅全部 session 状态(sidebar 用)
-- `chat_input { sessionId, text }` — server 侧包装成 bracketed-paste + 回车写 PTY(绕过终端 owner 检查:chat 输入是明确用户动作)
-- `interrupt { sessionId }` — 写 `\x1b`(Esc)打断
+- `chat_input { sessionId, text }` — server 侧包装成 bracketed-paste + 回车写 PTY；两次写入都按当前 WebSocket attachment 校验 owner
+- `interrupt { sessionId }` — owner 校验通过后写 `\x1b`(Esc)打断
 
 Server→Client:
 - `chat_init { sessionId, state, messages, meta }` — attach 时全量(大 session 只发最近 200 条)

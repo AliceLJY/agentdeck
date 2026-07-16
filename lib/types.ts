@@ -4,7 +4,7 @@ import type { HistoryBackend } from './backends';
 // Client -> Server (JSON)
 export type ClientMessage =
   | ({ type: 'create'; cols?: number; rows?: number } & TerminalCreateOptions)
-  | { type: 'attach'; sessionId: string }
+  | { type: 'attach'; sessionId: string; streamOutput?: boolean }
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'kill'; sessionId: string }

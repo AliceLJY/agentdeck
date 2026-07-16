@@ -31,6 +31,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
   const [meta, setMeta] = useState<TranscriptMeta>({});
   const [truncated, setTruncated] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(true);
 
@@ -78,6 +79,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
       ws.onopen = () => {
         reconnectAttemptsRef.current = 0;
         setConnected(true);
+        setReadOnly(false);
         ws.send(JSON.stringify({ type: 'chat_attach', sessionId }));
       };
 
@@ -95,6 +97,13 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
             if (msg.meta) setMeta({ ...msg.meta });
           } else if (msg.type === 'chat_state' && msg.sessionId === sessionId) {
             setClaimState(msg.state);
+          } else if (msg.type === 'taken_over') {
+            setReadOnly(true);
+          } else if (
+            msg.type === 'error'
+            && msg.message.includes('not attached to this connection')
+          ) {
+            setReadOnly(true);
           }
         } catch {
           // Ignore unparseable messages
@@ -122,6 +131,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
       setMessages([]);
       setClaimState('pending');
       setMeta({});
+      setReadOnly(false);
     };
   }, [sessionId, token, applyUpserts]);
 
@@ -152,17 +162,17 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
   const sendDraft = useCallback(() => {
     const text = draft.trim();
     const ws = wsRef.current;
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (readOnly || !text || !ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'chat_input', sessionId, text }));
     setDraft('');
     scrollToBottom();
-  }, [draft, sessionId, scrollToBottom]);
+  }, [draft, readOnly, sessionId, scrollToBottom]);
 
   const sendInterrupt = useCallback(() => {
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (readOnly || !ws || ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ type: 'interrupt', sessionId }));
-  }, [sessionId]);
+  }, [readOnly, sessionId]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Desktop: Enter sends, Shift+Enter newline. Touch: Enter is newline, send via button.
@@ -249,6 +259,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
         )}
         {meta.gitBranch && <span>· {meta.gitBranch}</span>}
         {!connected && <span className="text-amber-500">· reconnecting…</span>}
+        {readOnly && <span className="text-amber-500">· read-only (taken over)</span>}
       </div>
 
       {/* Input */}
@@ -256,6 +267,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
         <div className="shrink-0 h-11 flex items-center">
           <FileUpload
             token={token}
+            disabled={readOnly}
             onFileUploaded={(path) =>
               // Path lands in the draft so intent can be typed alongside it;
               // the CLI reads the file when the message is sent.
@@ -267,14 +279,16 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={`Message ${display.terminalName}…`}
+          placeholder={readOnly ? 'Read-only — session taken over' : `Message ${display.terminalName}…`}
+          disabled={readOnly}
           rows={Math.min(6, Math.max(1, draft.split('\n').length))}
           className="flex-1 resize-none rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2.5 text-[15px] leading-snug text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-blue-400 dark:focus:border-blue-500"
         />
         <button
           onClick={sendInterrupt}
+          disabled={readOnly}
           title="Interrupt (Esc)"
-          className="shrink-0 h-11 w-11 rounded-xl border border-red-200 dark:border-red-900 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center justify-center"
+          className="shrink-0 h-11 w-11 rounded-xl border border-red-200 dark:border-red-900 text-red-500 disabled:opacity-40 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors flex items-center justify-center"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
             <rect x="7" y="7" width="10" height="10" rx="1.5" />
@@ -282,7 +296,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
         </button>
         <button
           onClick={sendDraft}
-          disabled={!draft.trim()}
+          disabled={readOnly || !draft.trim()}
           title="Send"
           className="shrink-0 h-11 w-11 rounded-xl bg-blue-500 text-white disabled:opacity-40 hover:bg-blue-600 transition-colors flex items-center justify-center"
         >

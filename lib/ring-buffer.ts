@@ -5,7 +5,7 @@ import { RING_BUFFER_SIZE } from './types';
  * When a session is detached, PTY output is written here
  * so it can be replayed when a client reattaches.
  *
- * Default capacity: 256KB (configurable).
+ * Default capacity: 5MB, configured by RING_BUFFER_SIZE.
  */
 export class RingBuffer {
   private buffer: string[];

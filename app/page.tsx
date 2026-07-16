@@ -247,7 +247,9 @@ export default function Home() {
 
   const handleDeleteSession = useCallback(
     async (id: string) => {
-      // Send kill to server via a short-lived WS
+      // A kill is owner-only, so the short-lived socket must take over the
+      // session before issuing it. WebSocket message ordering guarantees the
+      // attach is handled first.
       if (token && aliveSessions.has(id)) {
         try {
           const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -255,6 +257,7 @@ export default function Home() {
             `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
           );
           ws.onopen = () => {
+            ws.send(JSON.stringify({ type: 'attach', sessionId: id, streamOutput: false }));
             ws.send(JSON.stringify({ type: 'kill', sessionId: id }));
             ws.close();
           };

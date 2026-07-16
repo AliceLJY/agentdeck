@@ -5,9 +5,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import { handleWebSocket } from './lib/ws-handler';
-import { terminalManager } from './lib/terminal-manager';
+import { TerminalManager } from './lib/terminal-manager';
 import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
+
+const terminalManager = new TerminalManager();
 
 // Prefix all server logs with an ISO timestamp for easier production debugging.
 const LOG_LEVELS: Array<'log' | 'warn' | 'error'> = ['log', 'warn', 'error'];
@@ -75,7 +77,7 @@ app.prepare().then(async () => {
   wss.on('connection', (ws: WebSocket) => {
     console.log('[cc-terminal] WebSocket client connected');
     trackConnection(ws);
-    handleWebSocket(ws);
+    handleWebSocket(ws, { terminalManager, transcriptHub });
   });
 
   startHeartbeat(wss);
