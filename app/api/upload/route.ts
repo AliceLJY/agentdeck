@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
-import { existsSync } from 'fs';
-import path from 'path';
+import { writePrivateUpload } from '@/lib/secure-upload';
 
-const UPLOAD_DIR = '/tmp/cc-remote-term-uploads';
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 export async function POST(req: NextRequest) {
@@ -25,20 +22,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'File too large (max 20MB)' }, { status: 400 });
     }
 
-    // Ensure upload directory exists
-    if (!existsSync(UPLOAD_DIR)) {
-      await mkdir(UPLOAD_DIR, { recursive: true });
-    }
-
-    // Generate safe filename: timestamp-originalname
-    const timestamp = Date.now();
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const filename = `${timestamp}-${safeName}`;
-    const filepath = path.join(UPLOAD_DIR, filename);
-
-    // Write file
     const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filepath, buffer);
+    const filepath = await writePrivateUpload(file.name, buffer);
 
     console.log(`[cc-terminal] File uploaded: ${filepath} (${file.size} bytes)`);
 

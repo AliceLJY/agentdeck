@@ -86,7 +86,13 @@ Open `http://localhost:3109` in your browser and paste the token into the login 
 
 ### Remote Access (Tailscale)
 
-If you have [Tailscale](https://tailscale.com/) installed, the server auto-detects your Tailscale IP on startup:
+The server binds to `127.0.0.1` by default. For remote access, bind it explicitly to your Tailscale address (preferred) or to all interfaces only when the host firewall is configured:
+
+```bash
+CC_TERMINAL_HOST=100.x.x.x npm start
+```
+
+When a network bind is enabled, the server auto-detects and prints the Tailscale URL:
 
 ```
 [cc-terminal] Tailscale: http://100.x.x.x:3109
@@ -102,7 +108,11 @@ Generate a token in a private file outside the repository first. The command cre
 npm run token:init
 ```
 
-Then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist` and bootstrap it. The plist contains no token; the wrapper validates the private file's type, owner, mode, and format before reading it at process start.
+Create a private log directory, then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist` and bootstrap it. The plist contains no token; the wrapper validates the private file's type, owner, mode, and format before reading it at process start.
+
+```bash
+install -d -m 700 ~/Library/Logs/cc-remote-term
+```
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -119,11 +129,13 @@ Then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.
   <dict>
     <key>NODE_ENV</key><string>production</string>
     <key>PORT</key><string>3109</string>
+    <key>CC_TERMINAL_HOST</key><string>100.x.x.x</string>
   </dict>
+  <key>Umask</key><integer>63</integer>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/tmp/cc-remote-term.out.log</string>
-  <key>StandardErrorPath</key><string>/tmp/cc-remote-term.err.log</string>
+  <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/cc-remote-term/out.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/cc-remote-term/err.log</string>
 </dict>
 </plist>
 ```
@@ -140,6 +152,7 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 |---|---|---|
 | `CC_TERMINAL_TOKEN` | (required) | Auth token; supplied directly for development or by the private-file launchd wrapper |
 | `CC_TERMINAL_TOKEN_FILE` | `~/.config/cc-remote-term/token` | Private launchd token file; must be a user-owned regular file with mode `600` |
+| `CC_TERMINAL_HOST` | `127.0.0.1` | Bind address; set explicitly to a Tailscale IP or `0.0.0.0` for remote access |
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
 | `CC_TERMINAL_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |

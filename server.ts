@@ -8,6 +8,7 @@ import { handleWebSocket } from './lib/ws-handler';
 import { TerminalManager } from './lib/terminal-manager';
 import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
+import { isLoopbackHost, resolveServerHost } from './lib/server-config';
 
 const terminalManager = new TerminalManager();
 
@@ -40,7 +41,7 @@ for (const level of LOG_LEVELS) {
 })();
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = '0.0.0.0';
+const hostname = resolveServerHost();
 const port = parseInt(process.env.PORT || '3109', 10);
 
 const app = next({ dev, hostname, port });
@@ -131,21 +132,25 @@ app.prepare().then(async () => {
     console.log(`[cc-terminal] Mode: ${dev ? 'development' : 'production'}`);
     console.log(`[cc-terminal] WebSocket endpoint: ws://${hostname}:${port}/ws/terminal?token=<token>`);
 
-    // Log Tailscale URL if available
-    try {
-      const os = require('os');
-      const interfaces = os.networkInterfaces();
-      for (const [name, addrs] of Object.entries(interfaces)) {
-        if (name.startsWith('utun') || name === 'tailscale0') {
-          for (const addr of addrs as any[]) {
-            if (addr.family === 'IPv4') {
-              console.log(`[cc-terminal] Tailscale: http://${addr.address}:${port}`);
+    if (isLoopbackHost(hostname)) {
+      console.log('[cc-terminal] Remote access disabled; set CC_TERMINAL_HOST explicitly to enable it.');
+    } else {
+      // Log Tailscale URL if available
+      try {
+        const os = require('os');
+        const interfaces = os.networkInterfaces();
+        for (const [name, addrs] of Object.entries(interfaces)) {
+          if (name.startsWith('utun') || name === 'tailscale0') {
+            for (const addr of addrs as any[]) {
+              if (addr.family === 'IPv4') {
+                console.log(`[cc-terminal] Tailscale: http://${addr.address}:${port}`);
+              }
             }
           }
         }
+      } catch {
+        // Tailscale detection is best-effort
       }
-    } catch {
-      // Tailscale detection is best-effort
     }
   });
 });
