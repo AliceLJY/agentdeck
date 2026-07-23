@@ -158,6 +158,7 @@ export class TerminalManager {
     const backend = normalizeBackend(options.backend);
     const title = this.resolveTitle(options.title, now);
     const resumeId = this.resolveResumeId(options.resumeSessionId);
+    let holderPid: string | null = null;
 
     // `claude --resume` looks the session up under the CURRENT cwd's project
     // dir. Resuming from the wrong directory makes the CLI print "No
@@ -175,16 +176,11 @@ export class TerminalManager {
             `Cannot resume: session ${resumeId.slice(0, 8)}… has no transcript under ${cwd} — it may belong to another machine or directory.`,
           );
         }
-        const holderPid = findResumeHolder(resumeId);
-        if (holderPid) {
-          throw new Error(
-            `Cannot resume: session ${resumeId.slice(0, 8)}… is already held by a live process (pid ${holderPid}) — usually a background agent serving the desktop app or the TG bridge. Continue the conversation there, or stop that process first (\`kill ${holderPid}\`), or run \`claude --resume ${resumeId} --fork-session\` in a terminal to branch a copy.`,
-          );
-        }
+        holderPid = findResumeHolder(resumeId);
       }
     }
     const backendExecutable = this.findBackendExecutable(backend);
-    const backendArgs = buildBackendCommand({
+    let backendArgs = buildBackendCommand({
       backend,
       executable: backendExecutable,
       cwd,
@@ -195,6 +191,15 @@ export class TerminalManager {
       sandbox: options.sandbox,
       reasoningEffort: options.reasoningEffort,
     });
+
+    // Session held by a live bg agent (daemon serving the desktop app / TG
+    // bridge): a fresh `--resume` prints a refusal and dies within a second.
+    // The CLI offers no non-interactive attach (verified on 2.1.218), so fall
+    // back to the interactive agents picker in this same terminal — selecting
+    // the session there takes it over for real.
+    if (holderPid) {
+      backendArgs = [backendExecutable, 'agents'];
+    }
 
     // Create detached tmux session running the selected CLI with correct env.
     const envCmd = `env PATH=${shellQuote(this.enrichedEnv.PATH)} TERM=xterm-256color FORCE_COLOR=1 HOME=${shellQuote(this.home)} ${backendArgs.map(shellQuote).join(' ')}`;
@@ -220,6 +225,13 @@ export class TerminalManager {
       dataDisposable: null,
     };
 
+    if (holderPid) {
+      session.buffer.write(
+        `\x1b[33m该会话正被后台 agent 持有（pid ${holderPid}，桌面 app / TG bridge 正在用它）。\r\n` +
+        `已打开 agents 列表——选中目标会话回车即可接管（接管后原端会失去它）；Esc 退出。\x1b[0m\r\n\r\n`,
+      );
+    }
+
     this.setupPtyHandlers(session);
     this.sessions.set(id, session);
     this.store.save(id, {
@@ -229,7 +241,7 @@ export class TerminalManager {
       resumeSessionId: resumeId,
     });
 
-    console.log(`[cc-terminal] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd} (${this.sessions.size}/${MAX_SESSIONS})`);
+    console.log(`[cc-terminal] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd}${holderPid ? ' [agents-picker fallback]' : ''} (${this.sessions.size}/${MAX_SESSIONS})`);
     return this.toSessionInfo(session);
   }
 
