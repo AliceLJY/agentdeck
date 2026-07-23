@@ -19,7 +19,7 @@ export type ClientMessage =
 export type ServerMessage =
   | { type: 'created'; sessionId: string; backend: HistoryBackend; title: string }
   | { type: 'output'; data: string }
-  | { type: 'exit'; sessionId: string; code: number }
+  | { type: 'exit'; sessionId: string; code: number; lastOutput?: string }
   | { type: 'error'; message: string }
   | { type: 'sessions'; list: SessionInfo[] }
   | { type: 'taken_over' }

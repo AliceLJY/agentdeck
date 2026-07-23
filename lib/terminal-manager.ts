@@ -175,6 +175,12 @@ export class TerminalManager {
             `Cannot resume: session ${resumeId.slice(0, 8)}… has no transcript under ${cwd} — it may belong to another machine or directory.`,
           );
         }
+        const holderPid = findResumeHolder(resumeId);
+        if (holderPid) {
+          throw new Error(
+            `Cannot resume: session ${resumeId.slice(0, 8)}… is already held by a live process (pid ${holderPid}) — usually a background agent serving the desktop app or the TG bridge. Continue the conversation there, or stop that process first (\`kill ${holderPid}\`), or run \`claude --resume ${resumeId} --fork-session\` in a terminal to branch a copy.`,
+          );
+        }
       }
     }
     const backendExecutable = this.findBackendExecutable(backend);
@@ -392,8 +398,16 @@ export class TerminalManager {
         session.alive = false;
 
         if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+          // A CLI dying right after spawn usually printed the reason (bad
+          // flag, session held elsewhere, …) — replay its last words as
+          // plain text, since the raw stream flashed by too fast to read.
+          const shortLived = Date.now() - session.createdAt < 15_000;
+          const lastOutput = shortLived
+            ? stripTerminalNoise(session.buffer.read()).split('\n').slice(-6).join('\n')
+            : '';
           session.ws.send(JSON.stringify({
             type: 'exit', sessionId: session.id, code: exitCode,
+            ...(lastOutput ? { lastOutput } : {}),
           }));
         }
 
@@ -527,4 +541,59 @@ export class TerminalManager {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+export type ProcessGrep = (pattern: string) => string;
+
+const defaultProcessGrep: ProcessGrep = (pattern) => {
+  const result = spawnSync('pgrep', ['-f', pattern], { timeout: 2000 });
+  return result.status === 0 ? result.stdout.toString() : '';
+};
+
+/**
+ * A session already loaded by another live process (a daemon-managed
+ * background agent serving the desktop app or the TG bridge, or another
+ * terminal here) makes any new `claude --resume` print "currently running
+ * as a background agent" and exit within a second — which the user only
+ * sees as a terminal that dies instantly. Detect the holder up front.
+ *
+ * Matches both invocation shapes: `--resume <sessionId>` (interactive CLI)
+ * and `--resume /path/to/<sessionId>.jsonl` (daemon bg agents).
+ * Fails open: if pgrep is missing or errors, resume proceeds and the CLI
+ * reports the conflict itself.
+ */
+export function findResumeHolder(
+  resumeId: string,
+  processGrep: ProcessGrep = defaultProcessGrep,
+): string | null {
+  try {
+    // Pattern must not start with "-" or pgrep parses it as a flag.
+    const pid = processGrep(`resume[ =].*${resumeId}`).trim().split('\n')[0];
+    return pid || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reduce raw PTY output to the readable text lines a dying CLI printed —
+ * strips CSI/OSC escape sequences and control chars so the message can be
+ * replayed outside a terminal emulator.
+ */
+export function stripTerminalNoise(raw: string): string {
+  return raw
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '') // OSC sequences
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b\[[0-9;?<>=]*[a-zA-Z~]/g, '')      // CSI sequences
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b[()][0-9A-B]/g, '')                // charset selection
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b[a-zA-Z<>=]/g, '')                 // bare ESC sequences
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')        // control chars (keep \n \t)
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.trim().length > 0)
+    .join('\n');
 }

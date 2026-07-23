@@ -281,6 +281,9 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
               case 'exit':
                 term.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');
+                if (msg.lastOutput) {
+                  term.write(`\x1b[90m${msg.lastOutput.replace(/\n/g, '\r\n')}\x1b[0m\r\n`);
+                }
                 onSessionExited?.(msg.sessionId);
                 break;
 
