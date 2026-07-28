@@ -55,7 +55,7 @@ export function startHeartbeat(
   const timer = setInterval(() => {
     const terminated = sweep(wss.clients);
     if (terminated > 0) {
-      console.log(`[cc-terminal] Heartbeat: terminated ${terminated} zombie connection(s)`);
+      console.log(`[agentdeck] Heartbeat: terminated ${terminated} zombie connection(s)`);
     }
   }, intervalMs);
   timer.unref?.();

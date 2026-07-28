@@ -35,7 +35,7 @@ export async function ensurePrivateUploadDirectory(
   baseDirectory: string = tmpdir(),
   uid: number | undefined = currentUid(),
 ): Promise<string> {
-  const ownerDirectory = join(baseDirectory, `cc-remote-term-${uid ?? 'user'}`);
+  const ownerDirectory = join(baseDirectory, `agentdeck-${uid ?? 'user'}`);
   await ensurePrivateDirectory(ownerDirectory, uid);
 
   const uploadDirectory = join(ownerDirectory, 'uploads');

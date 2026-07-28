@@ -8,7 +8,9 @@ import { dirname, join } from 'node:path';
 import { spawn } from 'node:child_process';
 
 const tokenFile =
-  process.env.CC_TERMINAL_TOKEN_FILE || join(homedir(), '.config', 'cc-remote-term', 'token');
+  process.env.AGENTDECK_TOKEN_FILE
+  || process.env.CC_TERMINAL_TOKEN_FILE
+  || join(homedir(), '.config', 'agentdeck', 'token');
 
 async function main() {
   const tokenDirectory = dirname(tokenFile);
@@ -35,7 +37,7 @@ async function main() {
     throw error;
   }
 
-  if (process.env.CC_TERMINAL_SKIP_CLIPBOARD !== '1') {
+  if (process.env.AGENTDECK_SKIP_CLIPBOARD !== '1') {
     const pbcopy = spawn('/usr/bin/pbcopy', [], { stdio: ['pipe', 'ignore', 'inherit'] });
     pbcopy.stdin.end(token);
     const [exitCode] = await once(pbcopy, 'close');
@@ -43,14 +45,14 @@ async function main() {
   }
 
   console.log(
-    process.env.CC_TERMINAL_SKIP_CLIPBOARD === '1'
-      ? `[cc-terminal] New token stored privately at ${tokenFile}; clipboard copy skipped.`
-      : `[cc-terminal] New token stored privately at ${tokenFile} and copied to the clipboard.`,
+    process.env.AGENTDECK_SKIP_CLIPBOARD === '1'
+      ? `[agentdeck] New token stored privately at ${tokenFile}; clipboard copy skipped.`
+      : `[agentdeck] New token stored privately at ${tokenFile} and copied to the clipboard.`,
   );
 }
 
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
-  console.error(`[cc-terminal] Token initialization failed: ${message}`);
+  console.error(`[agentdeck] Token initialization failed: ${message}`);
   process.exitCode = 1;
 });

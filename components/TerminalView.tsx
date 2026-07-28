@@ -152,7 +152,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             });
             term.loadAddon(webgl);
           } catch {
-            console.warn('[cc-terminal] WebGL not available, using DOM renderer');
+            console.warn('[agentdeck] WebGL not available, using DOM renderer');
           }
         }
 

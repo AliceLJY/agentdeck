@@ -12,10 +12,12 @@ interface SessionMeta {
   resumeSessionId?: string | null;
 }
 
-const STORE_PATH = path.join(
-  process.env.HOME || '/Users/USER',
-  '.cc-remote-term-sessions.json',
-);
+const HOME = process.env.HOME || '/Users/USER';
+const STORE_PATH = path.join(HOME, '.agentdeck-sessions.json');
+/** Pre-rename (cc-remote-term) location. Read as a fallback so upgrading in
+ *  place keeps the titles and backends of sessions already running; the first
+ *  save migrates them to STORE_PATH. */
+const LEGACY_STORE_PATH = path.join(HOME, '.cc-remote-term-sessions.json');
 
 /**
  * Persists session metadata (title, createdAt) to disk.
@@ -30,19 +32,22 @@ export class SessionStore {
   }
 
   private load(): void {
-    try {
-      const raw = fs.readFileSync(STORE_PATH, 'utf-8');
-      this.data = JSON.parse(raw);
-    } catch {
-      this.data = {};
+    for (const candidate of [STORE_PATH, LEGACY_STORE_PATH]) {
+      try {
+        this.data = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+        return;
+      } catch {
+        // Missing or unreadable — fall through to the next candidate
+      }
     }
+    this.data = {};
   }
 
   private persist(): void {
     try {
       fs.writeFileSync(STORE_PATH, JSON.stringify(this.data, null, 2));
     } catch (err) {
-      console.error('[cc-terminal] Failed to persist session store:', err);
+      console.error('[agentdeck] Failed to persist session store:', err);
     }
   }
 

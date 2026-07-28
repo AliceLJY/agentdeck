@@ -2,13 +2,13 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'CC Terminal',
+  title: 'AgentDeck',
   description: 'Web terminal for Claude Code CLI',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'CC Terminal',
+    title: 'AgentDeck',
   },
 };
 

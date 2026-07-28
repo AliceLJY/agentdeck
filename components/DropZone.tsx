@@ -35,7 +35,7 @@ export default function DropZone({ token, onFileUploaded, children }: DropZonePr
       const data = await res.json();
       onFileUploaded(data.path);
     } catch (err) {
-      console.error('[cc-terminal] Drop upload error:', err);
+      console.error('[agentdeck] Drop upload error:', err);
     } finally {
       setUploading(false);
     }

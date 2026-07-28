@@ -28,7 +28,7 @@ export default function TokenGate({ onSubmit }: TokenGateProps) {
         className="w-full max-w-sm flex flex-col gap-4"
       >
         <div className="text-center">
-          <h1 className="text-lg font-semibold">CC Terminal</h1>
+          <h1 className="text-lg font-semibold">AgentDeck</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Enter your access token to connect
           </p>

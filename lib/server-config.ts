@@ -1,7 +1,7 @@
 export function resolveServerHost(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
-  return env.CC_TERMINAL_HOST?.trim() || '127.0.0.1';
+  return env.AGENTDECK_HOST?.trim() || env.CC_TERMINAL_HOST?.trim() || '127.0.0.1';
 }
 
 export function isLoopbackHost(hostname: string): boolean {

@@ -1,6 +1,9 @@
-# cc-remote-term
+# AgentDeck
 
-A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) CLI. Access either agent from any device — phone, tablet, or desktop — over your local network or Tailscale.
+A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) today, a tab each. Reach them from any device — phone, tablet, or desktop — over your local network or Tailscale.
+
+A backend is a CLI path plus its argv rules (`lib/backends.ts`), so the deck is
+built to hold more decks than it currently does.
 
 **A real terminal, not a chat wrapper.** xterm.js + node-pty + tmux run the upstream CLI interactively, exactly as it behaves in your local terminal. Layered on top is an optional **chat view** — the same live session rendered as clean, scrollable message bubbles, so reading long replies and typing on a phone feel native, without giving up the real terminal underneath.
 
@@ -13,8 +16,9 @@ A web-based remote terminal for [Claude Code](https://docs.anthropic.com/en/docs
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
 - **Chat view** — Flip any live session into a structured chat: message bubbles, rendered Markdown, collapsible tool-call strips, auto-scroll that pauses when you scroll up. It reads the CLI's own transcript file, so it holds the complete, scrollable record — the terminal viewport can truncate a long reply, the chat view never does. One tap back to the real terminal for TUI prompts and pickers.
 - **Send & interrupt from chat** — Type and send straight from the chat view (it writes to the PTY, same as typing in the terminal); a stop button interrupts the running agent. Attach an image or file inline — send a phone screenshot and the agent reads it.
-- **Live status in the session list** — Each session shows what it is doing right now (the current tool call while working) or a preview of its last reply when idle, with a pulsing dot for active work.
-- **Responsive split layout** — On tablet/desktop the session list is a persistent narrow pane next to the content; on a phone it collapses to a slim icon rail. List and content stay on one screen either way.
+- **Tab strip for live sessions** — Open sessions line the top of the screen as browser-style tabs, each with its backend badge and a dot that pulses while the agent works. A parallel Claude and Codex are one glance apart, on a phone as much as on a desktop.
+- **Sidebar of past conversations** — The pane behind the tabs lists the 20 most recent conversations across both backends; tap one to resume it. A green dot means a live session is already writing that transcript, so tapping jumps into the running session instead of forking a second copy.
+- **Live status** — A session shows what it is doing right now (the current tool call while working) or a preview of its last reply when idle.
 - **New-session parameters** — Choose model, reasoning effort, and permission mode (Claude) or reasoning / sandbox (Codex) before spawning; every value is validated against the CLI's own flags.
 - **Multi-session** — Click "+" to spawn up to 10 concurrent sessions, switch freely between them
 - **tmux-backed persistence** — Sessions survive server restarts; the PTY lives in tmux, the WebSocket just attaches to it
@@ -69,13 +73,13 @@ Browser (any device)          Server (your Mac)
 ### Install & Run
 
 ```bash
-git clone https://github.com/AliceLJY/cc-remote-term.git
-cd cc-remote-term
+git clone https://github.com/AliceLJY/agentdeck.git
+cd agentdeck
 npm install
 
 # Local development: create a private env file without printing the token
 umask 077
-printf 'CC_TERMINAL_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.local
+printf 'AGENTDECK_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.local
 
 # Build & start
 npm run build
@@ -89,29 +93,29 @@ Open `http://localhost:3109` in your browser and paste the token into the login 
 The server binds to `127.0.0.1` by default. For remote access, bind it explicitly to your Tailscale address (preferred) or to all interfaces only when the host firewall is configured:
 
 ```bash
-CC_TERMINAL_HOST=100.x.x.x npm start
+AGENTDECK_HOST=100.x.x.x npm start
 ```
 
 When a network bind is enabled, the server auto-detects and prints the Tailscale URL:
 
 ```
-[cc-terminal] Tailscale: http://100.x.x.x:3109
+[agentdeck] Tailscale: http://100.x.x.x:3109
 ```
 
 Access from any device on your Tailnet at `http://100.x.x.x:3109`, then paste the token into the login prompt. Avoid putting tokens in URLs because URLs can enter browser history and logs.
 
 ### Auto-start (macOS launchd)
 
-Generate a token in a private file outside the repository first. The command creates `~/.config/cc-remote-term/token` with mode `600` inside a mode-`700` directory and copies the token to the clipboard without printing it:
+Generate a token in a private file outside the repository first. The command creates `~/.config/agentdeck/token` with mode `600` inside a mode-`700` directory and copies the token to the clipboard without printing it:
 
 ```bash
 npm run token:init
 ```
 
-Create a private log directory, then drop a plist like this into `~/Library/LaunchAgents/com.cc-remote-term.web.plist` and bootstrap it. The plist contains no token; the wrapper validates the private file's type, owner, mode, and format before reading it at process start.
+Create a private log directory, then drop a plist like this into `~/Library/LaunchAgents/com.agentdeck.web.plist` and bootstrap it. The plist contains no token; the wrapper validates the private file's type, owner, mode, and format before reading it at process start.
 
 ```bash
-install -d -m 700 ~/Library/Logs/cc-remote-term
+install -d -m 700 ~/Library/Logs/agentdeck
 ```
 
 ```xml
@@ -119,29 +123,29 @@ install -d -m 700 ~/Library/Logs/cc-remote-term
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.cc-remote-term.web</string>
-  <key>WorkingDirectory</key><string>/Users/YOU/Projects/cc-remote-term</string>
+  <key>Label</key><string>com.agentdeck.web</string>
+  <key>WorkingDirectory</key><string>/Users/YOU/Projects/agentdeck</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/YOU/Projects/cc-remote-term/scripts/run-launchd.sh</string>
+    <string>/Users/YOU/Projects/agentdeck/scripts/run-launchd.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>NODE_ENV</key><string>production</string>
     <key>PORT</key><string>3109</string>
-    <key>CC_TERMINAL_HOST</key><string>100.x.x.x</string>
+    <key>AGENTDECK_HOST</key><string>100.x.x.x</string>
   </dict>
   <key>Umask</key><integer>63</integer>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/cc-remote-term/out.log</string>
-  <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/cc-remote-term/err.log</string>
+  <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/agentdeck/out.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/agentdeck/err.log</string>
 </dict>
 </plist>
 ```
 
 ```bash
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.agentdeck.web.plist
 ```
 
 Use `npm run token:copy` whenever another device needs the current token. Use `npm run token:init` again to rotate it, then restart the LaunchAgent; neither command prints the value.
@@ -150,12 +154,16 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 
 | Environment Variable | Default | Description |
 |---|---|---|
-| `CC_TERMINAL_TOKEN` | (required) | Auth token; supplied directly for development or by the private-file launchd wrapper |
-| `CC_TERMINAL_TOKEN_FILE` | `~/.config/cc-remote-term/token` | Private launchd token file; must be a user-owned regular file with mode `600` |
-| `CC_TERMINAL_HOST` | `127.0.0.1` | Bind address; set explicitly to a Tailscale IP or `0.0.0.0` for remote access |
+| `AGENTDECK_TOKEN` | (required) | Auth token; supplied directly for development or by the private-file launchd wrapper |
+| `AGENTDECK_TOKEN_FILE` | `~/.config/agentdeck/token` | Private launchd token file; must be a user-owned regular file with mode `600` |
+| `AGENTDECK_HOST` | `127.0.0.1` | Bind address; set explicitly to a Tailscale IP or `0.0.0.0` for remote access |
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
-| `CC_TERMINAL_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |
+| `AGENTDECK_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |
+
+The project was called `cc-remote-term` before it grew a second backend. The
+old `CC_TERMINAL_*` variables are still read as a fallback, as is the old
+`~/.config/cc-remote-term/token` path, so upgrading in place needs no edits.
 
 Session limits (in `lib/types.ts`):
 
@@ -169,7 +177,7 @@ Session limits (in `lib/types.ts`):
 
 - **Frontend**: Next.js 16 (App Router), React 19, Tailwind CSS 4, xterm.js 6
 - **Backend**: Custom Node.js HTTP server, WebSocket (ws), node-pty, tmux (for session persistence)
-- **Storage**: IndexedDB (client-side session list); session metadata persisted in `~/.cc-remote-term-sessions.json`
+- **Storage**: IndexedDB (client-side session list); session metadata persisted in `~/.agentdeck-sessions.json`
 
 ## Acknowledgements
 

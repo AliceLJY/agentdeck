@@ -23,7 +23,7 @@ test('rejects a pre-existing symlink in the per-user path', async (t) => {
   t.after(() => rm(root, { recursive: true, force: true }));
   const target = await mkdtemp(join(tmpdir(), 'ccrt-upload-target-'));
   t.after(() => rm(target, { recursive: true, force: true }));
-  const ownerDirectory = join(root, `cc-remote-term-${uid ?? 'user'}`);
+  const ownerDirectory = join(root, `agentdeck-${uid ?? 'user'}`);
   await symlink(target, ownerDirectory);
 
   await assert.rejects(
@@ -48,7 +48,7 @@ test('writes unique private files without path traversal', async (t) => {
 
   assert.notEqual(first, second);
   assert.equal(await readFile(first, 'utf8'), 'hello');
-  assert.equal(first.startsWith(join(root, `cc-remote-term-${uid ?? 'user'}`, 'uploads')), true);
+  assert.equal(first.startsWith(join(root, `agentdeck-${uid ?? 'user'}`, 'uploads')), true);
   assert.equal(first.includes('..'), false);
   if (uid !== undefined) assert.equal((await lstat(first)).mode & 0o777, 0o600);
 });

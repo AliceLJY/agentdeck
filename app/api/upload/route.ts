@@ -6,7 +6,7 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 export async function POST(req: NextRequest) {
   // Simple token auth
   const token = req.headers.get('x-token');
-  if (token !== process.env.CC_TERMINAL_TOKEN) {
+  if (token !== (process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const filepath = await writePrivateUpload(file.name, buffer);
 
-    console.log(`[cc-terminal] File uploaded: ${filepath} (${file.size} bytes)`);
+    console.log(`[agentdeck] File uploaded: ${filepath} (${file.size} bytes)`);
 
     return NextResponse.json({
       path: filepath,
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       size: file.size,
     });
   } catch (err) {
-    console.error('[cc-terminal] Upload error:', err);
+    console.error('[agentdeck] Upload error:', err);
     return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
   }
 }

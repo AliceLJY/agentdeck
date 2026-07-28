@@ -24,7 +24,7 @@ export function useTerminalSessions() {
         backend: normalizeBackend(session.backend),
       })));
     } catch (err) {
-      console.error('[cc-terminal] Failed to load sessions from IDB:', err);
+      console.error('[agentdeck] Failed to load sessions from IDB:', err);
     }
   }, []);
 

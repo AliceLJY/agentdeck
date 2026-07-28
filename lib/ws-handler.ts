@@ -73,7 +73,7 @@ export function handleWebSocket(
             title: info.title,
           });
 
-          console.log(`[cc-terminal] WS: created + attached session ${id}`);
+          console.log(`[agentdeck] WS: created + attached session ${id}`);
           break;
         }
 
@@ -86,7 +86,7 @@ export function handleWebSocket(
           terminalManager.attach(msg.sessionId, ws, msg.streamOutput !== false);
           currentSessionId = msg.sessionId;
 
-          console.log(`[cc-terminal] WS: attached to session ${msg.sessionId}`);
+          console.log(`[agentdeck] WS: attached to session ${msg.sessionId}`);
           break;
         }
 
@@ -119,7 +119,7 @@ export function handleWebSocket(
             currentSessionId = null;
           }
 
-          console.log(`[cc-terminal] WS: killed session ${msg.sessionId}`);
+          console.log(`[agentdeck] WS: killed session ${msg.sessionId}`);
           break;
         }
 
@@ -191,19 +191,19 @@ export function handleWebSocket(
     transcriptHub.release(ws);
     if (currentSessionId) {
       terminalManager.detach(currentSessionId, ws);
-      console.log(`[cc-terminal] WS closed, detached session ${currentSessionId}`);
+      console.log(`[agentdeck] WS closed, detached session ${currentSessionId}`);
       currentSessionId = null;
     }
   });
 
   ws.on('error', (err) => {
-    console.error('[cc-terminal] WS error:', err.message);
+    console.error('[agentdeck] WS error:', err.message);
   });
 }
 
 function sendError(ws: WebSocket, err: unknown): void {
   const message = err instanceof Error ? err.message : 'Unknown error';
-  console.error('[cc-terminal] WS message error:', message);
+  console.error('[agentdeck] WS message error:', message);
   send(ws, { type: 'error', message });
 }
 

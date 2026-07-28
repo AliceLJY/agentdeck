@@ -193,7 +193,7 @@ export class TranscriptHub {
     t.offset = 0;
     t.carry = '';
     t.state = 'claimed';
-    console.log(`[cc-terminal] Transcript claimed: ${t.sessionId} → ${filePath}`);
+    console.log(`[agentdeck] Transcript claimed: ${t.sessionId} → ${filePath}`);
 
     await this.readIncremental(t, { silent: true }); // backfill history without spamming chat_event
 

@@ -149,7 +149,7 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
         <div className="flex items-center gap-3">
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-semibold tracking-normal truncate">
-              CC Terminal
+              AgentDeck
             </h1>
             <div className="text-sm text-gray-500 dark:text-gray-400 truncate">
               {selectedProject ? selectedProject.name : 'Projects'}

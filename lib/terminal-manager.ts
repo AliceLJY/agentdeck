@@ -20,7 +20,11 @@ import {
   TerminalCreateOptions,
 } from './types';
 
-/** All our tmux sessions use a dedicated socket to avoid polluting user's tmux */
+/** All our tmux sessions use a dedicated socket to avoid polluting user's tmux.
+ *  'ccrt' is the pre-rename (cc-remote-term) spelling and stays that way on
+ *  purpose: the socket path and session prefix are how a restarted server
+ *  finds the tmux sessions it left running. Renaming them would orphan every
+ *  live session on upgrade — an invisible internal id is not worth that. */
 const TMUX_SOCKET = 'ccrt';
 const TMUX_PREFIX = 'ccrt';
 
@@ -95,7 +99,7 @@ export class TerminalManager {
 
         // Check if pane process is still alive
         if (!this.isPaneAlive(tmuxName)) {
-          console.log(`[cc-terminal] Removing dead tmux session: ${tmuxName}`);
+          console.log(`[agentdeck] Removing dead tmux session: ${tmuxName}`);
           this.tmuxExecSafe(['kill-session', '-t', tmuxName]);
           this.store.remove(id);
           continue;
@@ -126,14 +130,14 @@ export class TerminalManager {
         });
 
         recovered++;
-        console.log(`[cc-terminal] Recovered: ${tmuxName} (${backend}) → "${meta?.title || '(untitled)'}"`);
+        console.log(`[agentdeck] Recovered: ${tmuxName} (${backend}) → "${meta?.title || '(untitled)'}"`);
       }
 
       if (recovered > 0) {
-        console.log(`[cc-terminal] Recovered ${recovered} session(s) from tmux`);
+        console.log(`[agentdeck] Recovered ${recovered} session(s) from tmux`);
       }
     } catch {
-      console.log('[cc-terminal] No existing tmux sessions found');
+      console.log('[agentdeck] No existing tmux sessions found');
     }
   }
 
@@ -241,7 +245,7 @@ export class TerminalManager {
       resumeSessionId: resumeId,
     });
 
-    console.log(`[cc-terminal] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd}${holderPid ? ' [agents-picker fallback]' : ''} (${this.sessions.size}/${MAX_SESSIONS})`);
+    console.log(`[agentdeck] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd}${holderPid ? ' [agents-picker fallback]' : ''} (${this.sessions.size}/${MAX_SESSIONS})`);
     return this.toSessionInfo(session);
   }
 
@@ -260,7 +264,7 @@ export class TerminalManager {
       const ptyProcess = this.spawnBridge(session.tmuxName, DEFAULT_COLS, DEFAULT_ROWS);
       session.pty = ptyProcess;
       this.setupPtyHandlers(session);
-      console.log(`[cc-terminal] Spawned PTY bridge for recovered session: ${sessionId}`);
+      console.log(`[agentdeck] Spawned PTY bridge for recovered session: ${sessionId}`);
     }
 
     // Terminal views receive the raw PTY stream (including replay). Chat and
@@ -328,7 +332,7 @@ export class TerminalManager {
   private killSession(session: TerminalSession): void {
     const sessionId = session.id;
 
-    console.log(`[cc-terminal] Killing: ${sessionId}`);
+    console.log(`[agentdeck] Killing: ${sessionId}`);
 
     if (session.pty) {
       try { session.pty.kill(); } catch {}
@@ -388,19 +392,19 @@ export class TerminalManager {
     });
 
     session.pty.onExit(({ exitCode }) => {
-      console.log(`[cc-terminal] PTY bridge exited: ${session.id} (code ${exitCode})`);
+      console.log(`[agentdeck] PTY bridge exited: ${session.id} (code ${exitCode})`);
 
       const tmuxAlive = this.isTmuxSessionAlive(session.tmuxName);
       const paneAlive = tmuxAlive && this.isPaneAlive(session.tmuxName);
 
       if (paneAlive) {
         // tmux session still alive — bridge can reconnect later
-        console.log(`[cc-terminal] tmux:${session.tmuxName} still alive, bridge can reconnect`);
+        console.log(`[agentdeck] tmux:${session.tmuxName} still alive, bridge can reconnect`);
         session.pty = null;
         session.dataDisposable = null;
       } else {
         // Claude exited — session is dead
-        console.log(`[cc-terminal] Session ${session.id} is dead`);
+        console.log(`[agentdeck] Session ${session.id} is dead`);
         session.alive = false;
 
         if (session.ws && session.ws.readyState === WebSocket.OPEN) {
@@ -528,7 +532,7 @@ export class TerminalManager {
     const now = Date.now();
     for (const [id, s] of this.sessions.entries()) {
       if (!s.ws && (now - s.lastActivity) > IDLE_TIMEOUT) {
-        console.log(`[cc-terminal] Cleaning up idle session: ${id}`);
+        console.log(`[agentdeck] Cleaning up idle session: ${id}`);
         this.killSession(s);
       }
     }
