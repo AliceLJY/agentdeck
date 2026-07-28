@@ -7,7 +7,7 @@ import type {
   ClaudeHistorySession,
   ClaudeTranscript,
 } from '@/lib/history-index';
-import { formatTranscriptMessageBlock } from '@/lib/history-format';
+import { formatRelative, formatTranscriptMessageBlock } from '@/lib/history-format';
 import {
   getBackendDisplay,
   type HistoryBackend,
@@ -512,16 +512,3 @@ function EmptyState({ text }: { text: string }) {
   );
 }
 
-function formatRelative(value: string): string {
-  const time = Date.parse(value);
-  if (!Number.isFinite(time)) return '';
-  const diff = Date.now() - time;
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-  if (diff < minute) return 'now';
-  if (diff < hour) return `${Math.floor(diff / minute)}m`;
-  if (diff < day) return `${Math.floor(diff / hour)}h`;
-  if (diff < 7 * day) return `${Math.floor(diff / day)}d`;
-  return new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' }).format(new Date(time));
-}
