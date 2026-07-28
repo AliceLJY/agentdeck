@@ -1,6 +1,6 @@
 # AgentDeck
 
-给 AI 编程 CLI 用的 Web 远程终端——[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上。
+给 AI 编程 CLI 用的 Web 远程终端——[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上：走 [frp](https://github.com/fatedier/frp) 反向隧道时不挑网络，不想暴露在公网上时走 [Tailscale](https://tailscale.com/)。
 
 **架构上能装任何 agent CLI，不只这两个。** 这里的一个 backend，无非是「一条 CLI 路径
 + 它的 argv 规则」——怎么启动、怎么 resume、哪些 flag 是安全的（`lib/backends.ts`）。
@@ -31,7 +31,7 @@
 - **tmux 持久化** — Session 撑过服务端重启；PTY 跑在 tmux 里，WebSocket 只是 attach 上去
 - **5MB 环形缓冲** — 每个 Session 保留 5MB 输出历史，attach / 重连时 replay，跨设备切换不丢上下文
 - **文件上传** — 拖拽到终端区域，或在两个视图里点回形针，把文件交给正在跑的 agent
-- **三端通用** — iPhone、iPad、安卓、电脑浏览器，通过 Tailscale 随时访问
+- **三端通用** — iPhone、iPad、安卓、电脑浏览器都能连：frp 反向隧道走任意网络，或在 Tailscale 网内直连
 - **iPad / iOS 友好** — 触摸快捷键栏（Esc、Tab、Ctrl+C、方向键）+ iOS 26 IME 输入修复
 - **深色/浅色主题** — 跟随系统，侧边栏可切换
 - **Token 认证** — token 不会写入页面 HTML；通过 `?token=` 链接或登录框提供，浏览器会记住
@@ -96,23 +96,53 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Codex 筛选切换新终端使用的后端。
+浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Codex / Kimi 筛选切换新终端使用的后端。
 
-### 远程访问（Tailscale）
+### 远程访问
 
-服务默认只监听 `127.0.0.1`。需要远程访问时，显式绑定 Tailscale 地址（优先）；只有主机防火墙已配置好时，才绑定全部网卡：
+服务默认只监听 `127.0.0.1`，所谓「远程访问」其实是在选浏览器怎么够到这个端口。
+两条路，可以同时留着，哪条网络允许走哪条。
+
+**反向隧道（frp）——不挑网络。** 手机用流量、酒店 Wi-Fi、别人家 NAT 后面的电脑，
+只要够得到你自己的 VPS 就够得到它。在跑 AgentDeck 的机器上跑一个
+[frp](https://github.com/fatedier/frp) 客户端，把端口转出去：
+
+```toml
+# frpc.toml，放在跑 AgentDeck 的机器上
+serverAddr = "vps.example.com"
+serverPort = 7000
+auth.method = "token"
+auth.token = "<你的 frp token>"
+
+[[proxies]]
+name = "agentdeck"
+type = "tcp"
+localIP = "127.0.0.1"   # frpc 在本机连，不必放宽 AGENTDECK_HOST
+localPort = 3109
+remotePort = 3456
+```
+
+> **真用之前先在服务端套上 TLS。** 裸 `tcp` 代理等于把明文 HTTP 发到公网上：
+> 访问 token、每一次击键、每一个上传的文件都是明文过网络，而这个端口后面是你
+> 机器上的一个可交互 shell。在转发端口前面放 nginx / Caddy，或者用 frp 自己的
+> `https2http` 代理配上证书，让浏览器全程走 HTTPS。
+
+**Tailscale——什么都不往公网发。** 只有同一个 tailnet 内的设备能连，适合完全
+不想把它暴露在公网上的时候。绑定 Tailscale 地址（优先于 `0.0.0.0`，后者需要
+主机防火墙兜着）：
 
 ```bash
 AGENTDECK_HOST=100.x.x.x npm start
 ```
 
-启用网络监听后，服务会自动检测并打印 Tailscale URL：
+服务启动时会自动检测并打印地址：
 
 ```
 [agentdeck] Tailscale: http://100.x.x.x:3109
 ```
 
-Tailnet 内设备访问 `http://100.x.x.x:3109` 后，在登录框粘贴 token。不要把 token 放进 URL，避免进入浏览器历史和日志。
+两条路都一样：token 在登录框里粘贴，别放进 URL——URL 会进浏览器历史、代理日志和
+referrer 头。
 
 ### 开机自启（macOS launchd）
 
@@ -166,7 +196,7 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.agentdeck.web.plist
 |---|---|---|
 | `AGENTDECK_TOKEN` | （必填） | 认证 token；开发时直接注入，launchd 模式由私有文件包装器注入 |
 | `AGENTDECK_TOKEN_FILE` | `~/.config/agentdeck/token` | launchd 私有 token 文件；必须由当前用户拥有且权限为 `600` |
-| `AGENTDECK_HOST` | `127.0.0.1` | 监听地址；远程访问时显式设为 Tailscale IP 或 `0.0.0.0` |
+| `AGENTDECK_HOST` | `127.0.0.1` | 监听地址。用 frp 转发时保持默认即可（隧道在本机连）；只有要直连 LAN / Tailscale 时才放宽：设为 Tailscale IP，或在主机防火墙兜底的前提下设 `0.0.0.0` |
 | `PORT` | `3109` | 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 使用优化构建 |
 | `AGENTDECK_TIME_ZONE` | `Asia/Singapore` | 对话记录时间戳使用的 IANA 时区 |

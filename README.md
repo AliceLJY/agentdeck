@@ -1,6 +1,6 @@
 # AgentDeck
 
-A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) and [Kimi Code](https://moonshotai.github.io/kimi-code/), a tab each. Reach them from any device — phone, tablet, or desktop — over your local network or Tailscale.
+A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) and [Kimi Code](https://moonshotai.github.io/kimi-code/), a tab each. Reach them from any device — phone, tablet, or desktop — through a reverse tunnel ([frp](https://github.com/fatedier/frp)) from any network, or over [Tailscale](https://tailscale.com/) when you would rather not be on the public internet at all.
 
 **Built to hold any agent CLI, not just these two.** A backend here is nothing
 but a CLI path plus its argv rules — how to launch it, how to resume a session,
@@ -33,7 +33,7 @@ screenshot are placeholders.*
 - **tmux-backed persistence** — Sessions survive server restarts; the PTY lives in tmux, the WebSocket just attaches to it
 - **Session ring buffer** — 5 MB of output per session is replayed on reconnect, so switching devices doesn't lose context
 - **File upload** — Drag & drop onto the terminal, or click the paperclip in either view, to hand files to the running agent
-- **Cross-device** — Works on iPhone, iPad, Android, and desktop browsers via Tailscale
+- **Cross-device** — Works on iPhone, iPad, Android, and desktop browsers: over an frp reverse tunnel from any network, or inside a Tailscale tailnet
 - **iPad / iOS-friendly** — Touch key bar (Esc, Tab, Ctrl+C, arrows) and IME fixes for iOS 26
 - **Dark/Light theme** — Follows system preference, toggleable in sidebar
 - **Token auth** — The token is never embedded in the page HTML; supply it via a `?token=` link or the login prompt, and it's remembered per browser
@@ -98,23 +98,58 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Codex filter selects which backend new terminals start with.
+Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Codex / Kimi filter selects which backend new terminals start with.
 
-### Remote Access (Tailscale)
+### Remote Access
 
-The server binds to `127.0.0.1` by default. For remote access, bind it explicitly to your Tailscale address (preferred) or to all interfaces only when the host firewall is configured:
+The server binds to `127.0.0.1` by default, so "remote access" is really the
+question of how a browser reaches that port. Two answers, and they compose —
+run both and use whichever the current network allows.
+
+**Reverse tunnel (frp) — reachable from any network.** A phone on cellular, a
+hotel Wi-Fi, a laptop behind someone else's NAT: anything that can reach a VPS
+you control can reach the deck. Run [frp](https://github.com/fatedier/frp)'s
+client next to AgentDeck and forward the port to your server:
+
+```toml
+# frpc.toml, on the machine running AgentDeck
+serverAddr = "vps.example.com"
+serverPort = 7000
+auth.method = "token"
+auth.token = "<your frp token>"
+
+[[proxies]]
+name = "agentdeck"
+type = "tcp"
+localIP = "127.0.0.1"   # frpc reaches the server locally — no need to widen AGENTDECK_HOST
+localPort = 3109
+remotePort = 3456
+```
+
+> **Terminate TLS on the server before using this for real.** A bare `tcp`
+> proxy republishes plain HTTP on the public internet: the access token, every
+> keystroke, and every uploaded file cross the network in the clear — and what
+> sits behind that port is an interactive shell on your machine. Put nginx or
+> Caddy in front of the forwarded port, or use frp's own `https2http` proxy with
+> a certificate, so the browser talks HTTPS end to end.
+
+**Tailscale — nothing published at all.** Devices on the same tailnet only,
+which is the fallback when you don't want the deck exposed publicly. Bind to
+the Tailscale address (preferred over `0.0.0.0`, which needs a host firewall in
+front of it):
 
 ```bash
 AGENTDECK_HOST=100.x.x.x npm start
 ```
 
-When a network bind is enabled, the server auto-detects and prints the Tailscale URL:
+The server auto-detects the address and prints it at startup:
 
 ```
 [agentdeck] Tailscale: http://100.x.x.x:3109
 ```
 
-Access from any device on your Tailnet at `http://100.x.x.x:3109`, then paste the token into the login prompt. Avoid putting tokens in URLs because URLs can enter browser history and logs.
+Either way, paste the token into the login prompt rather than putting it in the
+URL — URLs end up in browser history, proxy logs, and referrer headers.
 
 ### Auto-start (macOS launchd)
 
@@ -168,7 +203,7 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 |---|---|---|
 | `AGENTDECK_TOKEN` | (required) | Auth token; supplied directly for development or by the private-file launchd wrapper |
 | `AGENTDECK_TOKEN_FILE` | `~/.config/agentdeck/token` | Private launchd token file; must be a user-owned regular file with mode `600` |
-| `AGENTDECK_HOST` | `127.0.0.1` | Bind address; set explicitly to a Tailscale IP or `0.0.0.0` for remote access |
+| `AGENTDECK_HOST` | `127.0.0.1` | Bind address. Leave it alone when fronting the app with frp — the tunnel connects locally. Widen it only for direct LAN/Tailscale access: a Tailscale IP, or `0.0.0.0` behind a host firewall |
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
 | `AGENTDECK_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |
