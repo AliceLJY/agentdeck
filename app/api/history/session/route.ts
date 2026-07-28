@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   const token = req.headers.get('x-token');
-  if (token !== process.env.CC_TERMINAL_TOKEN) {
+  if (token !== (process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

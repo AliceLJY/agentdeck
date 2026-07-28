@@ -21,7 +21,7 @@ for (const level of LOG_LEVELS) {
 
 // Next.js auto-loads .env.local into the client bundle but NOT into this
 // custom server process. Without this, dev runs fail with
-// "CC_TERMINAL_TOKEN is not set" unless the user manually exports first.
+// "AGENTDECK_TOKEN is not set" unless the user manually exports first.
 (() => {
   const envPath = resolve(process.cwd(), '.env.local');
   if (!existsSync(envPath)) return;
@@ -47,10 +47,12 @@ const port = parseInt(process.env.PORT || '3109', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-const CC_TERMINAL_TOKEN = process.env.CC_TERMINAL_TOKEN;
+// CC_TERMINAL_* names are the pre-rename spelling, still honoured so an
+// existing .env.local or exported shell var keeps working after upgrade.
+const AGENTDECK_TOKEN = process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN;
 
-if (!CC_TERMINAL_TOKEN) {
-  console.error('[cc-terminal] CC_TERMINAL_TOKEN is not set. Exiting.');
+if (!AGENTDECK_TOKEN) {
+  console.error('[agentdeck] AGENTDECK_TOKEN is not set. Exiting.');
   process.exit(1);
 }
 
@@ -76,7 +78,7 @@ app.prepare().then(async () => {
   const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws: WebSocket) => {
-    console.log('[cc-terminal] WebSocket client connected');
+    console.log('[agentdeck] WebSocket client connected');
     trackConnection(ws);
     handleWebSocket(ws, { terminalManager, transcriptHub });
   });
@@ -90,8 +92,8 @@ app.prepare().then(async () => {
     if (pathname === '/ws/terminal') {
       // Token authentication
       const token = query.token as string | undefined;
-      if (token !== CC_TERMINAL_TOKEN) {
-        console.warn('[cc-terminal] WS auth failed: invalid token');
+      if (token !== AGENTDECK_TOKEN) {
+        console.warn('[agentdeck] WS auth failed: invalid token');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -106,7 +108,7 @@ app.prepare().then(async () => {
     // In dev mode, let Next.js handle HMR WebSocket upgrades
     if (dev) {
       handleUpgrade(req, socket, head).catch((err) => {
-        console.error('[cc-terminal] Next.js upgrade error:', err);
+        console.error('[agentdeck] Next.js upgrade error:', err);
         socket.destroy();
       });
       return;
@@ -118,7 +120,7 @@ app.prepare().then(async () => {
   });
 
   server.listen(port, hostname, () => {
-    console.log(`[cc-terminal] Server running at http://${hostname}:${port}`);
+    console.log(`[agentdeck] Server running at http://${hostname}:${port}`);
     try {
       const pkg = JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'));
       let rev = '';
@@ -127,13 +129,13 @@ app.prepare().then(async () => {
           .execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'ignore'] })
           .toString().trim();
       } catch { /* not a git checkout */ }
-      console.log(`[cc-terminal] Version: ${pkg.version}${rev ? ` (${rev})` : ''}`);
+      console.log(`[agentdeck] Version: ${pkg.version}${rev ? ` (${rev})` : ''}`);
     } catch { /* package.json unreadable */ }
-    console.log(`[cc-terminal] Mode: ${dev ? 'development' : 'production'}`);
-    console.log(`[cc-terminal] WebSocket endpoint: ws://${hostname}:${port}/ws/terminal?token=<token>`);
+    console.log(`[agentdeck] Mode: ${dev ? 'development' : 'production'}`);
+    console.log(`[agentdeck] WebSocket endpoint: ws://${hostname}:${port}/ws/terminal?token=<token>`);
 
     if (isLoopbackHost(hostname)) {
-      console.log('[cc-terminal] Remote access disabled; set CC_TERMINAL_HOST explicitly to enable it.');
+      console.log('[agentdeck] Remote access disabled; set AGENTDECK_HOST explicitly to enable it.');
     } else {
       // Log Tailscale URL if available
       try {
@@ -143,7 +145,7 @@ app.prepare().then(async () => {
           if (name.startsWith('utun') || name === 'tailscale0') {
             for (const addr of addrs as any[]) {
               if (addr.family === 'IPv4') {
-                console.log(`[cc-terminal] Tailscale: http://${addr.address}:${port}`);
+                console.log(`[agentdeck] Tailscale: http://${addr.address}:${port}`);
               }
             }
           }

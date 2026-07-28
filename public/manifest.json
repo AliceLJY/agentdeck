@@ -1,7 +1,7 @@
 {
-  "name": "CC Terminal",
-  "short_name": "CC Terminal",
-  "description": "Web terminal for Claude Code CLI",
+  "name": "AgentDeck",
+  "short_name": "AgentDeck",
+  "description": "Web terminal for AI coding CLIs",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",

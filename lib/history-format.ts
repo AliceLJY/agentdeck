@@ -26,7 +26,7 @@ export function formatTranscriptMessageBlock(message: ClaudeTranscriptMessage): 
 function formatTimestamp(value: string): string {
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return '';
-  const requestedTimeZone = process.env.CC_TERMINAL_TIME_ZONE?.trim() || 'Asia/Singapore';
+  const requestedTimeZone = process.env.AGENTDECK_TIME_ZONE?.trim() || process.env.CC_TERMINAL_TIME_ZONE?.trim() || 'Asia/Singapore';
   let formatter: Intl.DateTimeFormat;
   try {
     formatter = timestampFormatter(requestedTimeZone);

@@ -7,7 +7,9 @@ test('binds to loopback by default', () => {
 });
 
 test('allows an explicit network bind address', () => {
-  assert.equal(resolveServerHost({ CC_TERMINAL_HOST: ' 0.0.0.0 ' }), '0.0.0.0');
+  assert.equal(resolveServerHost({ AGENTDECK_HOST: ' 0.0.0.0 ' }), '0.0.0.0');
+  // pre-rename spelling still accepted
+  assert.equal(resolveServerHost({ CC_TERMINAL_HOST: '0.0.0.0' }), '0.0.0.0');
 });
 
 test('recognizes loopback hostnames', () => {

@@ -48,7 +48,11 @@ export default function Home() {
   const [createOptions, setCreateOptions] = useState<TerminalCreateOptions | null>(null);
   const [viewModes, setViewModes] = useState<Record<string, 'chat' | 'term'>>({});
 
-  // Per-session Chat/Term preference, remembered across visits
+  // Per-session Chat/Term preference, remembered across visits.
+  // 'ccrt-' and 'cc-terminal-' keys below are the pre-rename (cc-remote-term)
+  // spelling, kept as-is: renaming a localStorage key silently drops whatever
+  // is already stored under it — for the token that means every phone gets
+  // bounced back to the login gate on upgrade.
   useEffect(() => {
     try {
       const stored = localStorage.getItem('ccrt-view-modes');
@@ -361,7 +365,7 @@ export default function Home() {
   const activeTitle =
     (activeSessionId ? statuses[activeSessionId]?.aiTitle : null) ||
     activeSession?.title ||
-    'CC Terminal';
+    'AgentDeck';
   const isRealSession = Boolean(activeSessionId && !activeSessionId.startsWith('__new__'));
   // Chat is the default view — smooth scrolling is the whole point; the
   // terminal stays one tap away for TUI-only interactions.
@@ -428,7 +432,7 @@ export default function Home() {
 
         {/* Top bar — session-only: on the home screen the tab strip and
             HistoryHome already carry the title, so this row would be dead
-            height (and a third "CC Terminal"). */}
+            height (and a third "AgentDeck"). */}
         {activeSessionId && (
         <div className="h-12 flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           <button

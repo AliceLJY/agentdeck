@@ -1,6 +1,9 @@
 import type { TerminalSessionMeta } from './types';
 import { normalizeBackend } from './backends';
 
+/** Pre-rename (cc-remote-term) database name, kept on purpose: renaming it
+ *  points the browser at an empty store, dropping the session list this device
+ *  has built up. The name is internal and never shown. */
 const DB_NAME = 'cc-remote-term';
 const DB_VERSION = 1;
 const STORE_NAME = 'terminal-sessions';

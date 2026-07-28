@@ -34,7 +34,7 @@ export default function FileUpload({ token, onFileUploaded, disabled }: FileUplo
       const data = await res.json();
       onFileUploaded(data.path);
     } catch (err) {
-      console.error('[cc-terminal] Upload error:', err);
+      console.error('[agentdeck] Upload error:', err);
       alert('Upload failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setUploading(false);

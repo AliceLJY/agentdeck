@@ -1,6 +1,8 @@
-# cc-remote-term
+# AgentDeck
 
-基于 Web 的 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [Codex](https://github.com/openai/codex) 远程终端。手机、平板、电脑，任何设备都能通过浏览器访问两种 CLI。
+给 AI 编程 CLI 用的 Web 远程终端——目前是 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [Codex](https://github.com/openai/codex)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上。
+
+一个 backend 就是「一条 CLI 路径 + 它的 argv 规则」（`lib/backends.ts`），所以这副牌还能再添几张。
 
 **是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
 
@@ -13,8 +15,9 @@
 - **真终端** — xterm.js 渲染完整终端体验，不是 Markdown 聊天框
 - **对话视图** — 任意 live session 一键翻成结构化对话：消息气泡、Markdown 渲染、可折叠的工具调用条、自动滚底（往上翻就暂停）。它读的是 CLI 自己写的 transcript 文件，所以拿到的是完整、能滚的记录——终端取景框会把长回复裁掉半截，对话视图不会。要点 TUI 选择框 / 权限确认，一键切回真终端。
 - **对话里直接发 & 打断** — 直接从对话视图打字发送（写进 PTY，跟在终端里敲一样）；停止按钮随时打断正在跑的 agent。还能内联传图 / 文件——发一张手机截图，agent 直接读。
-- **列表实时状态** — 每个 session 显示它此刻在干什么（运行中显示当前工具调用），空闲时显示上一条回复摘要，活跃时状态点会呼吸。
-- **响应式分栏** — 平板 / 电脑上 session 列表是内容旁边常驻的窄栏；手机上收成一条细图标栏。两种屏幕都做到列表和内容同屏。
+- **顶部标签栏** — 开着的 session 像浏览器标签一样横在最上面，每个带 backend 徽章，agent 干活时状态点会呼吸。并排跑的 Claude 和 Codex 一眼就能分清，手机上也一样。
+- **侧边栏是聊过的对话** — 标签栏后面那栏列出两个 backend 最近的 20 段对话，点一下直接 resume。带绿点表示已经有 live session 在写那份 transcript，点它会跳进正在跑的那个 session，不会 fork 出第二份。
+- **实时状态** — session 会显示它此刻在干什么（运行中显示当前工具调用），空闲时显示上一条回复摘要。
 - **新建参数面板** — 开 session 前选模型、reasoning 力度、权限模式（Claude）或 reasoning / sandbox（Codex）；每个值都对着 CLI 自己的 flag 校验过。
 - **多 Session** — 点 "+" 最多开 10 个并发终端，自由切换，互不干扰
 - **tmux 持久化** — Session 撑过服务端重启；PTY 跑在 tmux 里，WebSocket 只是 attach 上去
@@ -69,13 +72,13 @@
 ### 安装运行
 
 ```bash
-git clone https://github.com/AliceLJY/cc-remote-term.git
-cd cc-remote-term
+git clone https://github.com/AliceLJY/agentdeck.git
+cd agentdeck
 npm install
 
 # 本地开发：生成私有 env 文件，不在终端打印 token
 umask 077
-printf 'CC_TERMINAL_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.local
+printf 'AGENTDECK_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env.local
 
 # 构建并启动
 npm run build
@@ -89,29 +92,29 @@ npm start
 服务默认只监听 `127.0.0.1`。需要远程访问时，显式绑定 Tailscale 地址（优先）；只有主机防火墙已配置好时，才绑定全部网卡：
 
 ```bash
-CC_TERMINAL_HOST=100.x.x.x npm start
+AGENTDECK_HOST=100.x.x.x npm start
 ```
 
 启用网络监听后，服务会自动检测并打印 Tailscale URL：
 
 ```
-[cc-terminal] Tailscale: http://100.x.x.x:3109
+[agentdeck] Tailscale: http://100.x.x.x:3109
 ```
 
 Tailnet 内设备访问 `http://100.x.x.x:3109` 后，在登录框粘贴 token。不要把 token 放进 URL，避免进入浏览器历史和日志。
 
 ### 开机自启（macOS launchd）
 
-先把随机 token 存进仓库外的私有文件。这个命令会创建 `~/.config/cc-remote-term/token`（目录权限 `700`、文件权限 `600`），并把 token 复制到剪贴板，全程不在终端打印：
+先把随机 token 存进仓库外的私有文件。这个命令会创建 `~/.config/agentdeck/token`（目录权限 `700`、文件权限 `600`），并把 token 复制到剪贴板，全程不在终端打印：
 
 ```bash
 npm run token:init
 ```
 
-先创建私有日志目录，再把下面这个 plist 写进 `~/Library/LaunchAgents/com.cc-remote-term.web.plist`。plist 本身不含 token；启动包装器会先验证私有文件的类型、属主、权限和格式，再读取 token。
+先创建私有日志目录，再把下面这个 plist 写进 `~/Library/LaunchAgents/com.agentdeck.web.plist`。plist 本身不含 token；启动包装器会先验证私有文件的类型、属主、权限和格式，再读取 token。
 
 ```bash
-install -d -m 700 ~/Library/Logs/cc-remote-term
+install -d -m 700 ~/Library/Logs/agentdeck
 ```
 
 ```xml
@@ -119,29 +122,29 @@ install -d -m 700 ~/Library/Logs/cc-remote-term
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.cc-remote-term.web</string>
-  <key>WorkingDirectory</key><string>/Users/你的用户名/Projects/cc-remote-term</string>
+  <key>Label</key><string>com.agentdeck.web</string>
+  <key>WorkingDirectory</key><string>/Users/你的用户名/Projects/agentdeck</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/你的用户名/Projects/cc-remote-term/scripts/run-launchd.sh</string>
+    <string>/Users/你的用户名/Projects/agentdeck/scripts/run-launchd.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
     <key>NODE_ENV</key><string>production</string>
     <key>PORT</key><string>3109</string>
-    <key>CC_TERMINAL_HOST</key><string>100.x.x.x</string>
+    <key>AGENTDECK_HOST</key><string>100.x.x.x</string>
   </dict>
   <key>Umask</key><integer>63</integer>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/Users/你的用户名/Library/Logs/cc-remote-term/out.log</string>
-  <key>StandardErrorPath</key><string>/Users/你的用户名/Library/Logs/cc-remote-term/err.log</string>
+  <key>StandardOutPath</key><string>/Users/你的用户名/Library/Logs/agentdeck/out.log</string>
+  <key>StandardErrorPath</key><string>/Users/你的用户名/Library/Logs/agentdeck/err.log</string>
 </dict>
 </plist>
 ```
 
 ```bash
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.agentdeck.web.plist
 ```
 
 其他设备需要当前 token 时运行 `npm run token:copy`；需要轮换时再次运行 `npm run token:init`，再重启 LaunchAgent。两个命令都不会打印 token。
@@ -150,12 +153,15 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.cc-remote-term.web.plist
 
 | 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `CC_TERMINAL_TOKEN` | （必填） | 认证 token；开发时直接注入，launchd 模式由私有文件包装器注入 |
-| `CC_TERMINAL_TOKEN_FILE` | `~/.config/cc-remote-term/token` | launchd 私有 token 文件；必须由当前用户拥有且权限为 `600` |
-| `CC_TERMINAL_HOST` | `127.0.0.1` | 监听地址；远程访问时显式设为 Tailscale IP 或 `0.0.0.0` |
+| `AGENTDECK_TOKEN` | （必填） | 认证 token；开发时直接注入，launchd 模式由私有文件包装器注入 |
+| `AGENTDECK_TOKEN_FILE` | `~/.config/agentdeck/token` | launchd 私有 token 文件；必须由当前用户拥有且权限为 `600` |
+| `AGENTDECK_HOST` | `127.0.0.1` | 监听地址；远程访问时显式设为 Tailscale IP 或 `0.0.0.0` |
 | `PORT` | `3109` | 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 使用优化构建 |
-| `CC_TERMINAL_TIME_ZONE` | `Asia/Singapore` | 对话记录时间戳使用的 IANA 时区 |
+| `AGENTDECK_TIME_ZONE` | `Asia/Singapore` | 对话记录时间戳使用的 IANA 时区 |
+
+项目在接入第二个后端之前叫 `cc-remote-term`。旧的 `CC_TERMINAL_*` 变量和旧的
+`~/.config/cc-remote-term/token` 路径仍作为兜底读取，原地升级无需改任何配置。
 
 Session 参数（`lib/types.ts`）：
 
@@ -169,7 +175,7 @@ Session 参数（`lib/types.ts`）：
 
 - **前端**：Next.js 16（App Router）、React 19、Tailwind CSS 4、xterm.js 6
 - **后端**：Node.js HTTP 服务器、WebSocket（ws）、node-pty、tmux（session 持久化）
-- **存储**：IndexedDB（客户端 Session 列表）；服务端 session metadata 持久化在 `~/.cc-remote-term-sessions.json`
+- **存储**：IndexedDB（客户端 Session 列表）；服务端 session metadata 持久化在 `~/.agentdeck-sessions.json`
 
 ## 致谢
 
