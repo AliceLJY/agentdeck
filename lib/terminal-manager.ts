@@ -293,15 +293,9 @@ export class TerminalManager {
     const session = this.getSession(sessionId);
     this.assertOwner(session, ws);
 
-    // Auto-detect title from first input. Strip escape sequences and control
-    // chars first so bracketed-paste wrappers (chat input) and bare Esc
-    // (interrupt) can't become the title.
+    // Auto-detect title from first input.
     if (session.title === new Date(session.createdAt).toLocaleTimeString()) {
-      const trimmed = data
-        .replace(/\x1b\[[0-9;?]*[a-zA-Z~]/g, '')
-        // eslint-disable-next-line no-control-regex
-        .replace(/[\x00-\x1f\x7f]/g, '')
-        .trim();
+      const trimmed = titleFromInput(data);
       if (trimmed.length > 0) {
         session.title = trimmed.length > 50 ? trimmed.slice(0, 50) : trimmed;
         this.store.updateTitle(sessionId, session.title);
@@ -585,6 +579,17 @@ export function findResumeHolder(
   } catch {
     return null;
   }
+}
+
+/**
+ * The first real input doubles as the session title. Reuses the transcript
+ * stripper rather than a lighter one: a terminal answers the CLI's colour
+ * query with `\x1b]10;rgb:…`, and that reply arrives here as *input* — drop
+ * only the control chars and the visible `]10;rgb:…` becomes the title.
+ * Bracketed-paste wrappers and a bare Esc (interrupt) fall away the same way.
+ */
+export function titleFromInput(data: string): string {
+  return stripTerminalNoise(data).replace(/\s+/g, ' ').trim();
 }
 
 /**

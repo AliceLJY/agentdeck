@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findResumeHolder, stripTerminalNoise } from './terminal-manager';
+import { findResumeHolder, stripTerminalNoise, titleFromInput } from './terminal-manager';
 
 const SESSION_ID = 'df81b097-7529-43bb-bf43-6173c84b1dd2';
 
@@ -55,4 +55,24 @@ test('stripTerminalNoise recovers the readable refusal a dying CLI printed', () 
 
 test('stripTerminalNoise drops blank and escape-only lines', () => {
   assert.equal(stripTerminalNoise('\x1b[?25h\r\n\r\n\x1b[0m\r\n'), '');
+});
+
+test('titleFromInput ignores the terminal\'s own OSC colour-query reply', () => {
+  // xterm.js answers the CLI's `\x1b]10;?` foreground query by writing the
+  // reply back as input. It used to survive control-char stripping and land
+  // in the sidebar as a session titled "]10;rgb:3838/3a3a/3c3c".
+  assert.equal(titleFromInput('\x1b]10;rgb:3838/3a3a/3c3c\x07'), '');
+  assert.equal(titleFromInput('\x1b]11;rgb:1e1e/1e1e/1e1e\x1b\\'), '');
+});
+
+test('titleFromInput keeps the first real prompt as a single line', () => {
+  assert.equal(
+    titleFromInput('\x1b[200~review  this\r\n change\x1b[201~'),
+    'review this change',
+  );
+});
+
+test('titleFromInput yields nothing for a bare interrupt', () => {
+  assert.equal(titleFromInput('\x1b'), '');
+  assert.equal(titleFromInput('\x03'), '');
 });
