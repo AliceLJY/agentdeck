@@ -2,12 +2,21 @@
 
 A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) today, a tab each. Reach them from any device — phone, tablet, or desktop — over your local network or Tailscale.
 
-A backend is a CLI path plus its argv rules (`lib/backends.ts`), so the deck is
-built to hold more decks than it currently does.
+**Built to hold any agent CLI, not just these two.** A backend here is nothing
+but a CLI path plus its argv rules — how to launch it, how to resume a session,
+which flags are safe (`lib/backends.ts`). Everything above that layer (PTY, tmux
+persistence, tabs, chat view, history) is agent-agnostic, so teaching the deck a
+new CLI is one entry in that file, not a new transport. Kimi CLI is next in line.
 
 **A real terminal, not a chat wrapper.** xterm.js + node-pty + tmux run the upstream CLI interactively, exactly as it behaves in your local terminal. Layered on top is an optional **chat view** — the same live session rendered as clean, scrollable message bubbles, so reading long replies and typing on a phone feel native, without giving up the real terminal underneath.
 
 [中文 README](./README_CN.md)
+
+![AgentDeck](docs/screenshot.png)
+
+*Three live sessions across two CLIs — one Codex tab, two Claude Code tabs — with
+past conversations in the sidebar. Session titles and project names in the
+screenshot are placeholders.*
 
 ## Features
 

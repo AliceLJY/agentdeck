@@ -2,11 +2,19 @@
 
 给 AI 编程 CLI 用的 Web 远程终端——目前是 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [Codex](https://github.com/openai/codex)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上。
 
-一个 backend 就是「一条 CLI 路径 + 它的 argv 规则」（`lib/backends.ts`），所以这副牌还能再添几张。
+**架构上能装任何 agent CLI，不只这两个。** 这里的一个 backend，无非是「一条 CLI 路径
++ 它的 argv 规则」——怎么启动、怎么 resume、哪些 flag 是安全的（`lib/backends.ts`）。
+这层之上的东西（PTY、tmux 持久化、标签栏、对话视图、历史浏览）全都与具体 agent 无关，
+所以让它认识一个新 CLI 是在那个文件里加一条，不用动传输层。下一个接的是 Kimi CLI。
 
 **是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
 
 [English README](./README.md)
+
+![AgentDeck](docs/screenshot.png)
+
+*三个跑着的 session、跨两个 CLI——一个 Codex 标签、两个 Claude Code 标签，侧边栏是聊过的对话。
+截图里的 session 标题和项目名都是占位示例。*
 
 ## 功能
 
