@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
-import SessionRail from '@/components/SessionRail';
+import SessionTabs from '@/components/SessionTabs';
 import HistoryHome from '@/components/HistoryHome';
 import TokenGate from '@/components/TokenGate';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
@@ -333,6 +333,13 @@ export default function Home() {
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const activeBackend = activeSession ? getBackendDisplay(normalizeBackend(activeSession.backend)) : null;
+  // Same precedence as the tab strip and sidebar: the agent's own summary
+  // beats the auto-detected first input, which older sessions may have
+  // stored with terminal escape noise baked in.
+  const activeTitle =
+    (activeSessionId ? statuses[activeSessionId]?.aiTitle : null) ||
+    activeSession?.title ||
+    'CC Terminal';
   const isRealSession = Boolean(activeSessionId && !activeSessionId.startsWith('__new__'));
   // Chat is the default view — smooth scrolling is the whole point; the
   // terminal stays one tap away for TUI-only interactions.
@@ -355,19 +362,6 @@ export default function Home() {
 
   return (
     <div className="h-dvh flex overflow-hidden bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
-      {/* Session rail — phone portrait only; list + content stay on one screen */}
-      <div className="md:hidden flex-shrink-0">
-        <SessionRail
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          aliveSessions={aliveSessions}
-          workingSessions={new Set(Object.values(statuses).filter((s) => s.state === 'working').map((s) => s.sessionId))}
-          onSelect={handleSelectSession}
-          onExpand={() => setSidebarOpen(true)}
-          onCreate={handleOpenNewPanel}
-        />
-      </div>
-
       {/* Sidebar overlay backdrop (mobile expanded list) */}
       {sidebarOpen && (
         <div
@@ -400,22 +394,35 @@ export default function Home() {
 
       {/* Main area */}
       <div className="flex-1 min-w-0 flex flex-col">
-        {/* Top bar */}
-        <div className="h-[calc(3rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          {activeSessionId && (
-            <button
-              onClick={() => setActiveSessionId(null)}
-              className="ml-1 shrink-0 flex items-center gap-1 h-9 pl-1.5 pr-3 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-900 dark:hover:text-gray-100 transition-colors"
-              title="Back to home"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              <span className="text-sm font-medium">Back</span>
-            </button>
-          )}
+        {/* Tab strip — parallel sessions at a glance, browser-style */}
+        <SessionTabs
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          aliveSessions={aliveSessions}
+          statuses={statuses}
+          onSelect={handleSelectSession}
+          onDelete={handleDeleteSession}
+          onCreate={handleOpenNewPanel}
+          onOpenSidebar={() => setSidebarOpen(true)}
+        />
+
+        {/* Top bar — session-only: on the home screen the tab strip and
+            HistoryHome already carry the title, so this row would be dead
+            height (and a third "CC Terminal"). */}
+        {activeSessionId && (
+        <div className="h-12 flex items-center px-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <button
+            onClick={() => setActiveSessionId(null)}
+            className="ml-1 shrink-0 flex items-center gap-1 h-9 pl-1.5 pr-3 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 hover:text-gray-900 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-gray-900 dark:hover:text-gray-100 transition-colors"
+            title="Back to home"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            <span className="text-sm font-medium">Back</span>
+          </button>
           <span className="ml-2 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
-            {activeSession?.title || 'CC Terminal'}
+            {activeTitle}
           </span>
           {isRealSession && (
             <div className="mr-2 shrink-0 flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden text-xs font-medium">
@@ -456,6 +463,7 @@ export default function Home() {
             />
           )}
         </div>
+        )}
 
         {/* Chat / Terminal / New-session panel / Welcome */}
         <div className="flex-1 relative min-h-0">
