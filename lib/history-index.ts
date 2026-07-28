@@ -56,6 +56,13 @@ interface CodexBuildOptions {
   projectId?: string;
 }
 
+interface KimiBuildOptions {
+  sessionsRootDir?: string;
+  indexFile?: string;
+  limit?: number;
+  projectId?: string;
+}
+
 interface CombinedBuildOptions {
   backend?: HistoryBackendFilter;
   limit?: number;
@@ -63,6 +70,8 @@ interface CombinedBuildOptions {
   claudeRootDir?: string;
   codexSessionsRootDir?: string;
   codexIndexFile?: string;
+  kimiSessionsRootDir?: string;
+  kimiIndexFile?: string;
 }
 
 interface SessionCandidate {
@@ -102,6 +111,9 @@ interface CodexIndexEntry {
 }
 
 const DEFAULT_LIMIT = 25;
+/** kimi wire logs run to megabytes on long sessions; cap what a transcript
+ *  read hands back so one session can't dominate the response. */
+const MAX_HISTORY_MESSAGES = 500;
 const CODEX_SESSION_ID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
 export function claudeProjectsRoot(): string {
@@ -114,6 +126,14 @@ export function codexSessionsRoot(): string {
 
 export function codexSessionIndexPath(): string {
   return path.join(process.env.HOME || '', '.codex', 'session_index.jsonl');
+}
+
+export function kimiSessionsRoot(): string {
+  return path.join(process.env.HOME || '', '.kimi-code', 'sessions');
+}
+
+export function kimiSessionIndexPath(): string {
+  return path.join(process.env.HOME || '', '.kimi-code', 'session_index.jsonl');
 }
 
 export async function buildHistoryIndex(
@@ -135,9 +155,17 @@ export async function buildHistoryIndex(
       projectId: options.projectId,
     });
   }
+  if (backend === 'kimi') {
+    return buildKimiHistoryIndex({
+      sessionsRootDir: options.kimiSessionsRootDir,
+      indexFile: options.kimiIndexFile,
+      limit: options.limit,
+      projectId: options.projectId,
+    });
+  }
 
   const limit = clampLimit(options.limit);
-  const [claude, codex] = await Promise.all([
+  const [claude, codex, kimi] = await Promise.all([
     buildClaudeHistoryIndex({
       rootDir: options.claudeRootDir,
       limit,
@@ -149,12 +177,18 @@ export async function buildHistoryIndex(
       limit,
       projectId: options.projectId,
     }),
+    buildKimiHistoryIndex({
+      sessionsRootDir: options.kimiSessionsRootDir,
+      indexFile: options.kimiIndexFile,
+      limit,
+      projectId: options.projectId,
+    }),
   ]);
 
   return {
-    projects: [...claude.projects, ...codex.projects]
+    projects: [...claude.projects, ...codex.projects, ...kimi.projects]
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    sessions: [...claude.sessions, ...codex.sessions]
+    sessions: [...claude.sessions, ...codex.sessions, ...kimi.sessions]
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, limit),
   };
@@ -346,6 +380,262 @@ export async function buildCodexHistoryIndex(
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
     sessions,
   };
+}
+
+interface KimiSessionCandidate {
+  sessionId: string;
+  wirePath: string;
+  cwd: string;
+  mtimeMs: number;
+}
+
+/**
+ * kimi-code files each session as
+ * `sessions/wd_<name>_<hash>/session_<uuid>/agents/main/wire.jsonl`, with
+ * `session_index.jsonl` mapping a session id to that directory and the working
+ * directory it ran in. Reading the index beats walking the tree: it is one
+ * small file, and it is the only place the original cwd is recorded.
+ */
+async function listKimiSessionCandidates(
+  sessionsRootDir: string,
+  indexFile: string,
+): Promise<KimiSessionCandidate[]> {
+  let raw: string;
+  try {
+    raw = await readFile(indexFile, 'utf-8');
+  } catch {
+    return [];
+  }
+
+  const rootPrefix = path.resolve(sessionsRootDir) + path.sep;
+  const bySession = new Map<string, KimiSessionCandidate>();
+
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const sessionId = typeof entry.sessionId === 'string' ? entry.sessionId : '';
+    const sessionDir = typeof entry.sessionDir === 'string' ? entry.sessionDir : '';
+    const workDir = typeof entry.workDir === 'string' ? entry.workDir : '';
+    if (!sessionId || !sessionDir) continue;
+    // Local data, but it still names an absolute path — refuse anything
+    // resolving outside the sessions root rather than trusting the file.
+    if (!path.resolve(sessionDir).startsWith(rootPrefix)) continue;
+
+    const wirePath = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    let mtimeMs: number;
+    try {
+      mtimeMs = (await stat(wirePath)).mtimeMs;
+    } catch {
+      continue; // indexed but never written, or pruned
+    }
+    // A later line for the same id wins: the index is append-only.
+    bySession.set(sessionId, { sessionId, wirePath, cwd: workDir, mtimeMs });
+  }
+
+  return Array.from(bySession.values());
+}
+
+/** Parse one kimi wire log into transcript messages + session summary. */
+async function parseKimiSessionWithMessages(
+  candidate: KimiSessionCandidate,
+): Promise<ClaudeTranscript> {
+  let raw = '';
+  try {
+    raw = await readFile(candidate.wirePath, 'utf-8');
+  } catch {
+    // Fall through with an empty transcript rather than dropping the session
+  }
+
+  const messages: ClaudeTranscriptMessage[] = [];
+  let createdAtMs = candidate.mtimeMs;
+  let lastTimeMs = candidate.mtimeMs;
+
+  // Assistant output arrives as streamed `content.part` fragments; join them
+  // per step so one reply is one message instead of dozens of slivers.
+  let pending: { parts: string[]; timeMs: number } | null = null;
+  const flushAssistant = () => {
+    if (!pending) return;
+    const text = normalizeText(pending.parts.join(''));
+    if (text) {
+      messages.push({
+        id: `kimi-${messages.length}`,
+        role: 'assistant',
+        text,
+        timestamp: new Date(pending.timeMs).toISOString(),
+      });
+    }
+    pending = null;
+  };
+
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let record: Record<string, unknown>;
+    try {
+      record = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const timeMs = typeof record.time === 'number' ? record.time : lastTimeMs;
+    if (typeof record.time === 'number') lastTimeMs = record.time;
+
+    if (record.type === 'metadata') {
+      if (typeof record.created_at === 'number') createdAtMs = record.created_at;
+      continue;
+    }
+
+    if (record.type === 'context.append_message') {
+      const message = record.message;
+      if (!message || typeof message !== 'object') continue;
+      const typed = message as Record<string, unknown>;
+      if (typed.role !== 'user') continue;
+      const text = contentToText(typed.content);
+      if (!text) continue;
+      flushAssistant();
+      messages.push({
+        id: `kimi-${messages.length}`,
+        role: 'user',
+        text,
+        timestamp: new Date(timeMs).toISOString(),
+      });
+      continue;
+    }
+
+    if (record.type !== 'context.append_loop_event') continue;
+    const event = record.event;
+    if (!event || typeof event !== 'object') continue;
+    const typedEvent = event as Record<string, unknown>;
+
+    if (typedEvent.type === 'content.part') {
+      const part = typedEvent.part;
+      if (!part || typeof part !== 'object') continue;
+      const typedPart = part as Record<string, unknown>;
+      // `think` parts are the model's reasoning — same treatment as Claude's
+      // thinking blocks: kept out of the readable transcript.
+      if (typedPart.type !== 'text' || typeof typedPart.text !== 'string') continue;
+      if (!pending) pending = { parts: [], timeMs };
+      pending.parts.push(typedPart.text);
+      continue;
+    }
+
+    if (typedEvent.type === 'tool.call') {
+      const name = typeof typedEvent.name === 'string' ? typedEvent.name : 'tool';
+      const description = typeof typedEvent.description === 'string' ? typedEvent.description : '';
+      if (!pending) pending = { parts: [], timeMs };
+      pending.parts.push(`\n[tool: ${description || name}]\n`);
+      continue;
+    }
+
+    if (typedEvent.type === 'step.end') {
+      flushAssistant();
+    }
+  }
+  flushAssistant();
+
+  const trimmed = messages.slice(-MAX_HISTORY_MESSAGES);
+  const firstUser = messages.find((message) => message.role === 'user');
+  const last = messages[messages.length - 1];
+  const cwd = candidate.cwd || fallbackCwd(candidate.sessionId);
+  const projectId = projectIdFromCwd(cwd);
+
+  return {
+    session: {
+      backend: 'kimi',
+      projectId,
+      projectName: projectNameFromCwd(cwd, projectId),
+      cwd,
+      sessionId: candidate.sessionId,
+      title: trimPreview(firstUser?.text || ''),
+      preview: trimPreview(firstUser?.text || candidate.sessionId),
+      lastMessagePreview: trimPreview(last?.text || ''),
+      messageCount: messages.length,
+      createdAt: new Date(createdAtMs).toISOString(),
+      updatedAt: new Date(Math.max(lastTimeMs, createdAtMs)).toISOString(),
+    },
+    messages: trimmed,
+  };
+}
+
+export async function buildKimiHistoryIndex(
+  options: KimiBuildOptions = {},
+): Promise<ClaudeHistoryIndex> {
+  const sessionsRootDir = options.sessionsRootDir || kimiSessionsRoot();
+  const indexFile = options.indexFile || kimiSessionIndexPath();
+  const limit = clampLimit(options.limit);
+  const candidates = await listKimiSessionCandidates(sessionsRootDir, indexFile);
+
+  // Full project list from the index alone (cheap), then a full parse of only
+  // the most recent N — same shape as the Claude and Codex builders.
+  const projects = new Map<string, ProjectAccumulator>();
+  for (const candidate of candidates) {
+    const cwd = candidate.cwd || fallbackCwd(candidate.sessionId);
+    const projectId = projectIdFromCwd(cwd);
+    const project = projects.get(projectId) || {
+      backend: 'kimi' as const,
+      id: projectId,
+      name: projectNameFromCwd(cwd, projectId),
+      cwd,
+      sessionCount: 0,
+      updatedAtMs: 0,
+    };
+    project.sessionCount += 1;
+    project.updatedAtMs = Math.max(project.updatedAtMs, candidate.mtimeMs);
+    projects.set(projectId, project);
+  }
+
+  const scoped = candidates
+    .filter((candidate) => {
+      if (!options.projectId) return true;
+      return projectIdFromCwd(candidate.cwd || fallbackCwd(candidate.sessionId)) === options.projectId;
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, limit);
+
+  const sessions: ClaudeHistorySession[] = [];
+  for (const candidate of scoped) {
+    const parsed = await parseKimiSessionWithMessages(candidate);
+    if (parsed.session.messageCount === 0) continue; // never used
+    sessions.push(parsed.session);
+  }
+  sessions.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+  return {
+    projects: Array.from(projects.values())
+      .map((project) => ({
+        backend: project.backend,
+        id: project.id,
+        name: project.name,
+        cwd: project.cwd,
+        sessionCount: project.sessionCount,
+        updatedAt: new Date(project.updatedAtMs || Date.now()).toISOString(),
+      }))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    sessions,
+  };
+}
+
+export async function readKimiTranscript(options: {
+  sessionsRootDir?: string;
+  indexFile?: string;
+  projectId: string;
+  sessionId: string;
+}): Promise<ClaudeTranscript> {
+  assertSafeSegment(options.projectId, 'projectId');
+  assertSafeSegment(options.sessionId, 'sessionId');
+
+  const sessionsRootDir = options.sessionsRootDir || kimiSessionsRoot();
+  const indexFile = options.indexFile || kimiSessionIndexPath();
+  const candidates = await listKimiSessionCandidates(sessionsRootDir, indexFile);
+  const candidate = candidates.find((item) => item.sessionId === options.sessionId);
+  if (!candidate) {
+    throw new Error(`Kimi session not found: ${options.sessionId}`);
+  }
+  return parseKimiSessionWithMessages(candidate);
 }
 
 export async function readCodexTranscript(options: {

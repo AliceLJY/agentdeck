@@ -1,4 +1,4 @@
-export type HistoryBackend = 'claude' | 'codex';
+export type HistoryBackend = 'claude' | 'codex' | 'kimi';
 export type HistoryBackendFilter = HistoryBackend | 'all';
 
 export interface BackendDisplay {
@@ -30,6 +30,9 @@ const CLAUDE_PERMISSION_MODES = new Set([
 const CLAUDE_EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 const CODEX_SANDBOX_MODES = new Set(['read-only', 'workspace-write', 'danger-full-access']);
 const CODEX_REASONING_LEVELS = new Set(['minimal', 'low', 'medium', 'high', 'xhigh']);
+// Verified against `kimi --help` (0.29.1): -y auto-approves tool calls but still
+// asks questions, --auto is fully autonomous, --plan starts in plan mode.
+const KIMI_PERMISSION_MODES = new Set(['default', 'yolo', 'auto', 'plan']);
 const MODEL_NAME_RE = /^[A-Za-z0-9._/-]{1,64}$/;
 
 function safeModel(value: string | undefined): string | null {
@@ -59,14 +62,25 @@ const BACKEND_DISPLAY: Record<HistoryBackend, BackendDisplay> = {
       'border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30',
     terminalName: 'Codex',
   },
+  kimi: {
+    label: 'Kimi',
+    accentClass: 'border-violet-400 dark:border-violet-500',
+    badgeClass:
+      'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-300',
+    selectedClass:
+      'border-violet-300 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/30',
+    terminalName: 'Kimi',
+  },
 };
 
 export function normalizeBackend(value: unknown): HistoryBackend {
-  return value === 'codex' ? 'codex' : 'claude';
+  if (value === 'codex') return 'codex';
+  if (value === 'kimi') return 'kimi';
+  return 'claude';
 }
 
 export function normalizeBackendFilter(value: unknown): HistoryBackendFilter {
-  if (value === 'all' || value === 'codex' || value === 'claude') return value;
+  if (value === 'all' || value === 'codex' || value === 'claude' || value === 'kimi') return value;
   return 'all';
 }
 
@@ -76,6 +90,19 @@ export function getBackendDisplay(backend: HistoryBackend): BackendDisplay {
 
 export function buildBackendCommand(options: BackendCommandOptions): string[] {
   const resumeId = options.resumeSessionId || null;
+  if (options.backend === 'kimi') {
+    // kimi has no cwd flag — the tmux session is already spawned in `cwd`,
+    // and kimi files its own sessions by working directory from there.
+    const args = [options.executable];
+    if (resumeId) args.push('-S', resumeId);
+    const model = safeModel(options.model);
+    if (model) args.push('-m', model);
+    const mode = allowed(options.permissionMode, KIMI_PERMISSION_MODES);
+    if (mode === 'yolo') args.push('-y');
+    else if (mode === 'auto') args.push('--auto');
+    else if (mode === 'plan') args.push('--plan');
+    return args;
+  }
   if (options.backend === 'codex') {
     if (resumeId) {
       // `codex resume` may not accept the same flags as a fresh launch —

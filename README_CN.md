@@ -1,11 +1,11 @@
 # AgentDeck
 
-给 AI 编程 CLI 用的 Web 远程终端——目前是 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [Codex](https://github.com/openai/codex)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上。
+给 AI 编程 CLI 用的 Web 远程终端——[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上。
 
 **架构上能装任何 agent CLI，不只这两个。** 这里的一个 backend，无非是「一条 CLI 路径
 + 它的 argv 规则」——怎么启动、怎么 resume、哪些 flag 是安全的（`lib/backends.ts`）。
 这层之上的东西（PTY、tmux 持久化、标签栏、对话视图、历史浏览）全都与具体 agent 无关，
-所以让它认识一个新 CLI 是在那个文件里加一条，不用动传输层。下一个接的是 Kimi CLI。
+所以让它认识一个新 CLI 是在那个文件里加一条，不用动传输层——Kimi 就是这么进来的。
 
 **是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
 
@@ -13,18 +13,18 @@
 
 ![AgentDeck](docs/screenshot.png)
 
-*三个跑着的 session、跨两个 CLI——一个 Codex 标签、两个 Claude Code 标签，侧边栏是聊过的对话。
+*三个 CLI 并排——顶上是 Kimi、Claude Code、Codex 的标签，侧边栏是聊过的对话。
 截图里的 session 标题和项目名都是占位示例。*
 
 ## 功能
 
-- **两个 backend，一个 UI** — 同一个浏览器里既能开 Claude Code session，也能开 Codex session；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿）
+- **三个 backend，一个 UI** — 同一个浏览器里能开 Claude Code、Codex、Kimi Code；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿、Kimi 紫）
 - **历史浏览** — 跨 backend 的 history view：按当前 backend / 项目筛选展示最近活跃的最多 25 个 session；搜索只过滤这批已加载结果（暂时没有翻页），列表里的 session 可以点一下 resume
 - **真终端** — xterm.js 渲染完整终端体验，不是 Markdown 聊天框
 - **对话视图** — 任意 live session 一键翻成结构化对话：消息气泡、Markdown 渲染、可折叠的工具调用条、自动滚底（往上翻就暂停）。它读的是 CLI 自己写的 transcript 文件，所以拿到的是完整、能滚的记录——终端取景框会把长回复裁掉半截，对话视图不会。要点 TUI 选择框 / 权限确认，一键切回真终端。
 - **对话里直接发 & 打断** — 直接从对话视图打字发送（写进 PTY，跟在终端里敲一样）；停止按钮随时打断正在跑的 agent。还能内联传图 / 文件——发一张手机截图，agent 直接读。
 - **顶部标签栏** — 开着的 session 像浏览器标签一样横在最上面，每个带 backend 徽章，agent 干活时状态点会呼吸。并排跑的 Claude 和 Codex 一眼就能分清，手机上也一样。
-- **侧边栏是聊过的对话** — 标签栏后面那栏列出两个 backend 最近的 20 段对话，点一下直接 resume。带绿点表示已经有 live session 在写那份 transcript，点它会跳进正在跑的那个 session，不会 fork 出第二份。
+- **侧边栏是聊过的对话** — 标签栏后面那栏列出所有 backend 最近的 20 段对话，点一下直接 resume。带绿点表示已经有 live session 在写那份 transcript，点它会跳进正在跑的那个 session，不会 fork 出第二份。
 - **实时状态** — session 会显示它此刻在干什么（运行中显示当前工具调用），空闲时显示上一条回复摘要。
 - **新建参数面板** — 开 session 前选模型、reasoning 力度、权限模式（Claude）或 reasoning / sandbox（Codex）；每个值都对着 CLI 自己的 flag 校验过。
 - **多 Session** — 点 "+" 最多开 10 个并发终端，自由切换，互不干扰
@@ -48,18 +48,20 @@
 │                  │         │  └─ TerminalManager   │
 │  IndexedDB       │         │     ├─ tmux:ccrt-#1   │──► claude（PTY）
 │  （Session 列表）  │         │     ├─ tmux:ccrt-#2   │──► codex（PTY）
+│                  │         │     ├─ tmux:ccrt-#3   │──► kimi（PTY）
 └──────────────────┘         │     └─ ...            │
                              │                       │
                              │  历史扫描器：           │
                              │  ~/.claude/projects/* │
                              │  ~/.codex/sessions/*  │
+                             │  ~/.kimi-code/sessions│
                              └──────────────────────┘
 ```
 
 - **server.ts** — Next.js 页面 + WebSocket（`/ws/terminal`）共用的 HTTP 服务
 - **TerminalManager** — 管 tmux + PTY 生命周期、环形缓冲、attach/detach
-- **backends.ts** — 选 `claude` 还是 `codex` 可执行文件，构造对应 argv（包括各自的 `--resume` 语义）
-- **history-index.ts** — 扫描 `~/.claude/projects/*/`（Claude Code）+ `~/.codex/sessions/*/`（Codex），渲染统一的历史浏览
+- **backends.ts** — 选 `claude` / `codex` / `kimi` 可执行文件，构造对应 argv（包括各自的续会话语义：`--resume` / `resume` / `-S`）
+- **history-index.ts** — 扫描 `~/.claude/projects/*/`（Claude Code）、`~/.codex/sessions/*/`（Codex）、`~/.kimi-code/sessions/*/`（Kimi，经它的 `session_index.jsonl`），汇成统一的历史浏览
 - **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — 只读的对话层：找到 CLI 为某个 live session 写的 transcript 文件，增量 tail、解析成结构化消息 + 元信息（模型、token、分支、工具调用），推给对话视图。CLI 和终端那条路一点不动。
 - **WebSocket 协议** — JSON 消息：`create` / `attach` / `input` / `resize` / `kill` / `list`（终端），外加 `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status`（对话 + 实时状态）
 
@@ -72,6 +74,7 @@
 - 至少装一个：
   - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — 查找路径：`~/.local/bin/claude`、`/opt/homebrew/bin/claude`、`/usr/local/bin/claude`
   - [Codex CLI](https://github.com/openai/codex) — 查找路径：`/opt/homebrew/bin/codex`、`/usr/local/bin/codex`、`~/.local/bin/codex`
+  - [Kimi Code CLI](https://moonshotai.github.io/kimi-code/) — 优先查 `~/.kimi-code/bin/kimi`（它的安装器不会把自己加进 PATH），再查 `~/.local/bin/kimi` 和 Homebrew 目录
 
   只装一个也行，UI 只是创建对应缺失 backend 的 session 时会报错。
 

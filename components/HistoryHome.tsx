@@ -141,7 +141,9 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
       && project.id === selectedProjectScope.projectId,
     )
     : null;
-  const newTerminalBackend: HistoryBackend = backendFilter === 'codex' ? 'codex' : 'claude';
+  const newTerminalBackend: HistoryBackend = backendFilter === 'codex'
+    ? 'codex'
+    : backendFilter === 'kimi' ? 'kimi' : 'claude';
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
@@ -187,6 +189,7 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
           <BackendFilterButton label="All" active={backendFilter === 'all'} onClick={() => changeBackendFilter('all')} />
           <BackendFilterButton label="CC" active={backendFilter === 'claude'} onClick={() => changeBackendFilter('claude')} />
           <BackendFilterButton label="Codex" active={backendFilter === 'codex'} onClick={() => changeBackendFilter('codex')} />
+          <BackendFilterButton label="Kimi" active={backendFilter === 'kimi'} onClick={() => changeBackendFilter('kimi')} />
         </div>
       </div>
 

@@ -37,6 +37,8 @@ export class TranscriptParser {
   private codexToolMsgId: string | null = null;
   /** Claude: output tokens already counted per message.id (usage repeats per line). */
   private outByMsg = new Map<string, number>();
+  /** Kimi: id of the assistant message the current step is streaming into. */
+  private kimiStepMsgId: string | null = null;
 
   constructor(backend: HistoryBackend) {
     this.backend = backend;
@@ -65,9 +67,9 @@ export class TranscriptParser {
     if (!event || typeof event !== 'object') return EMPTY_RESULT;
 
     try {
-      return this.backend === 'codex'
-        ? this.parseCodexEvent(event)
-        : this.parseClaudeEvent(event);
+      if (this.backend === 'codex') return this.parseCodexEvent(event);
+      if (this.backend === 'kimi') return this.parseKimiEvent(event);
+      return this.parseClaudeEvent(event);
     } catch {
       return EMPTY_RESULT; // format drift must never kill the stream
     }
@@ -262,6 +264,90 @@ export class TranscriptParser {
     return { upserts: [], metaChanged: changed };
   }
 
+  // ─── Kimi ───
+
+  /**
+   * kimi-code writes an event log rather than a message log: the user turn
+   * arrives as `context.append_message`, the reply as a run of streamed
+   * `content.part` fragments inside `context.append_loop_event`, and the step
+   * closes with `step.end`. Fragments are appended into one assistant message
+   * per step so the chat view grows a reply in place instead of stacking
+   * slivers. `think` parts are the model's reasoning and stay out, matching
+   * how Claude's thinking blocks are handled.
+   */
+  private parseKimiEvent(event: Record<string, unknown>): ParseResult {
+    const timestamp = typeof event.time === 'number'
+      ? new Date(event.time).toISOString()
+      : new Date().toISOString();
+
+    if (event.type === 'context.append_message') {
+      const message = asRecord(event.message);
+      if (!message || message.role !== 'user') return EMPTY_RESULT;
+      const text = kimiContentText(message.content);
+      if (!text) return EMPTY_RESULT;
+      const msg: ChatMessage = { id: `u${this.seq++}`, role: 'user', text, tools: [], timestamp };
+      this.upsert(msg);
+      this.kimiStepMsgId = null;
+      return { upserts: [msg], metaChanged: false };
+    }
+
+    if (event.type !== 'context.append_loop_event') return EMPTY_RESULT;
+    const inner = asRecord(event.event);
+    if (!inner) return EMPTY_RESULT;
+
+    if (inner.type === 'step.end') {
+      const usage = asRecord(inner.usage);
+      this.kimiStepMsgId = null;
+      if (!usage) return EMPTY_RESULT;
+      let changed = false;
+      const ctx = numberOr0(usage.inputOther)
+        + numberOr0(usage.inputCacheRead)
+        + numberOr0(usage.inputCacheCreation);
+      if (ctx > 0 && ctx !== this.meta.contextTokens) {
+        this.meta.contextTokens = ctx;
+        changed = true;
+      }
+      const out = numberOr0(usage.output);
+      if (out > 0) {
+        this.meta.totalOutTokens = (this.meta.totalOutTokens || 0) + out;
+        changed = true;
+      }
+      return { upserts: [], metaChanged: changed };
+    }
+
+    if (inner.type === 'content.part') {
+      const part = asRecord(inner.part);
+      if (!part || part.type !== 'text' || typeof part.text !== 'string') return EMPTY_RESULT;
+      const msg = this.kimiAssistantMessage(timestamp);
+      msg.text += part.text;
+      return { upserts: [msg], metaChanged: false };
+    }
+
+    if (inner.type === 'tool.call') {
+      const name = typeof inner.name === 'string' ? inner.name : 'tool';
+      const description = typeof inner.description === 'string' ? inner.description : '';
+      const msg = this.kimiAssistantMessage(timestamp);
+      msg.tools.push({
+        id: typeof inner.toolCallId === 'string' ? inner.toolCallId : `k${this.seq++}`,
+        name,
+        summary: description || summarizeToolInput(name, inner.args),
+      });
+      return { upserts: [msg], metaChanged: false };
+    }
+
+    return EMPTY_RESULT;
+  }
+
+  /** The assistant message the current kimi step streams into, created lazily. */
+  private kimiAssistantMessage(timestamp: string): ChatMessage {
+    const existing = this.kimiStepMsgId ? this.messages.get(this.kimiStepMsgId) : undefined;
+    if (existing) return existing;
+    const msg: ChatMessage = { id: `a${this.seq++}`, role: 'assistant', text: '', tools: [], timestamp };
+    this.upsert(msg);
+    this.kimiStepMsgId = msg.id;
+    return msg;
+  }
+
   // ─── Shared ───
 
   private upsert(msg: ChatMessage): void {
@@ -413,4 +499,21 @@ function toToolInfo(id: unknown, name: unknown, input: unknown): ToolCallInfo {
 function truncate(text: string, max: number): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+/** kimi message content is a list of `{ type: 'text', text }` blocks. */
+function kimiContentText(content: unknown): string {
+  if (typeof content === 'string') return content.trim();
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((block) => {
+      const typed = asRecord(block);
+      if (!typed) return '';
+      if (typed.type === 'text' && typeof typed.text === 'string') return typed.text;
+      if (typeof typed.type === 'string') return `[${typed.type}]`;
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n')
+    .trim();
 }

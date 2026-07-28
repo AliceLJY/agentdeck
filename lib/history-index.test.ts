@@ -7,8 +7,10 @@ import {
   buildCodexHistoryIndex,
   buildHistoryIndex,
   buildClaudeHistoryIndex,
+  buildKimiHistoryIndex,
   readCodexTranscript,
   readClaudeTranscript,
+  readKimiTranscript,
 } from './history-index';
 
 function jsonl(rows: unknown[]): string {
@@ -368,6 +370,10 @@ test('builds a combined history index sorted across Claude and Codex', async () 
     backend: 'all',
     claudeRootDir: claudeRoot,
     codexSessionsRootDir: codexSessionsRoot,
+    // Point kimi at this fixture root too, or the combined index picks up the
+    // real ~/.kimi-code sessions of whoever runs the suite.
+    kimiSessionsRootDir: join(root, 'kimi-sessions'),
+    kimiIndexFile: join(root, 'kimi-index.jsonl'),
     limit: 10,
   });
 
@@ -413,4 +419,78 @@ test('keeps the most recently active Codex session when session_index is stale',
   assert.equal(index.projects.length, 2);
   assert.equal(index.sessions.length, 1);
   assert.equal(index.sessions[0].sessionId, idA);
+});
+
+test('indexes Kimi wire logs, joining streamed parts and dropping reasoning', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccrt-kimi-history-'));
+  const sessionsRoot = join(root, 'sessions');
+  const sessionId = 'session_11111111-2222-3333-4444-555555555555';
+  const sessionDir = join(sessionsRoot, 'wd_app_abc123', sessionId);
+  const wireDir = join(sessionDir, 'agents', 'main');
+  const indexFile = join(root, 'session_index.jsonl');
+  await mkdir(wireDir, { recursive: true });
+
+  await writeFile(indexFile, jsonl([
+    { sessionId, sessionDir, workDir: '/Users/alice/Projects/kimi-app' },
+    // Points outside the sessions root — must be refused, not read.
+    { sessionId: 'session_evil', sessionDir: '/etc', workDir: '/Users/alice' },
+  ]));
+
+  await writeFile(join(wireDir, 'wire.jsonl'), jsonl([
+    { type: 'metadata', protocol_version: '1.4', created_at: 1785000000000 },
+    {
+      type: 'context.append_message',
+      message: { role: 'user', content: [{ type: 'text', text: 'kimi question' }] },
+      time: 1785000000100,
+    },
+    // Reasoning must not surface in the readable transcript.
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'content.part', part: { type: 'think', think: 'secret reasoning' } },
+      time: 1785000000200,
+    },
+    // Streamed fragments of one reply.
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'content.part', part: { type: 'text', text: 'kimi ' } },
+      time: 1785000000300,
+    },
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'content.part', part: { type: 'text', text: 'answer' } },
+      time: 1785000000400,
+    },
+    {
+      type: 'context.append_loop_event',
+      event: { type: 'step.end', finishReason: 'stop' },
+      time: 1785000000500,
+    },
+  ]));
+
+  const index = await buildKimiHistoryIndex({
+    sessionsRootDir: sessionsRoot,
+    indexFile,
+    limit: 10,
+  });
+
+  assert.equal(index.sessions.length, 1);
+  const [session] = index.sessions;
+  assert.equal(session.backend, 'kimi');
+  assert.equal(session.sessionId, sessionId);
+  assert.equal(session.cwd, '/Users/alice/Projects/kimi-app');
+  assert.equal(session.preview, 'kimi question');
+
+  const transcript = await readKimiTranscript({
+    sessionsRootDir: sessionsRoot,
+    indexFile,
+    projectId: session.projectId,
+    sessionId,
+  });
+  assert.deepEqual(
+    transcript.messages.map((message) => [message.role, message.text]),
+    [
+      ['user', 'kimi question'],
+      ['assistant', 'kimi answer'],
+    ],
+  );
 });
