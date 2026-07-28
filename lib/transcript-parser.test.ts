@@ -195,3 +195,49 @@ describe('summarizeToolInput', () => {
     assert.ok(long.length <= 80);
   });
 });
+
+describe('TranscriptParser (kimi)', () => {
+  const line = (obj: unknown) => JSON.stringify(obj);
+  const loop = (event: unknown, time = 1785000000000) =>
+    line({ type: 'context.append_loop_event', event, time });
+
+  it('streams content parts into one assistant message and skips reasoning', () => {
+    const p = new TranscriptParser('kimi');
+
+    const user = p.parseLine(line({
+      type: 'context.append_message',
+      message: { role: 'user', content: [{ type: 'text', text: 'hello kimi' }] },
+      time: 1785000000000,
+    }));
+    assert.equal(user.upserts[0].role, 'user');
+    assert.equal(user.upserts[0].text, 'hello kimi');
+
+    // Reasoning parts must not reach the chat view.
+    assert.equal(p.parseLine(loop({ type: 'content.part', part: { type: 'think', think: 'secret' } })).upserts.length, 0);
+
+    p.parseLine(loop({ type: 'content.part', part: { type: 'text', text: 'partial ' } }));
+    const second = p.parseLine(loop({ type: 'content.part', part: { type: 'text', text: 'answer' } }));
+    assert.equal(second.upserts[0].text, 'partial answer');
+
+    // One assistant message for the whole step, not one per fragment.
+    assert.equal(p.all().filter((m) => m.role === 'assistant').length, 1);
+    assert.equal(p.all().length, 2);
+  });
+
+  it('attaches tool calls to the streaming message and closes the step', () => {
+    const p = new TranscriptParser('kimi');
+    p.parseLine(loop({ type: 'content.part', part: { type: 'text', text: 'looking' } }));
+    const tool = p.parseLine(loop({
+      type: 'tool.call', toolCallId: 'tool_1', name: 'Skill', description: 'Invoke skill docs',
+    }));
+    assert.equal(tool.upserts[0].tools[0].name, 'Skill');
+    assert.equal(tool.upserts[0].tools[0].summary, 'Invoke skill docs');
+
+    // step.end closes the message; the next part starts a fresh one.
+    p.parseLine(loop({ type: 'step.end', usage: { output: 42, inputOther: 100, inputCacheRead: 5, inputCacheCreation: 0 } }));
+    p.parseLine(loop({ type: 'content.part', part: { type: 'text', text: 'next turn' } }));
+    assert.equal(p.all().filter((m) => m.role === 'assistant').length, 2);
+    assert.equal(p.meta.totalOutTokens, 42);
+    assert.equal(p.meta.contextTokens, 105);
+  });
+});

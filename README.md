@@ -1,12 +1,12 @@
 # AgentDeck
 
-A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) today, a tab each. Reach them from any device — phone, tablet, or desktop — over your local network or Tailscale.
+A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) and [Kimi Code](https://moonshotai.github.io/kimi-code/), a tab each. Reach them from any device — phone, tablet, or desktop — over your local network or Tailscale.
 
 **Built to hold any agent CLI, not just these two.** A backend here is nothing
 but a CLI path plus its argv rules — how to launch it, how to resume a session,
 which flags are safe (`lib/backends.ts`). Everything above that layer (PTY, tmux
 persistence, tabs, chat view, history) is agent-agnostic, so teaching the deck a
-new CLI is one entry in that file, not a new transport. Kimi CLI is next in line.
+new CLI is one entry in that file, not a new transport — that is how Kimi joined.
 
 **A real terminal, not a chat wrapper.** xterm.js + node-pty + tmux run the upstream CLI interactively, exactly as it behaves in your local terminal. Layered on top is an optional **chat view** — the same live session rendered as clean, scrollable message bubbles, so reading long replies and typing on a phone feel native, without giving up the real terminal underneath.
 
@@ -14,19 +14,19 @@ new CLI is one entry in that file, not a new transport. Kimi CLI is next in line
 
 ![AgentDeck](docs/screenshot.png)
 
-*Three live sessions across two CLIs — one Codex tab, two Claude Code tabs — with
+*Three CLIs side by side — Kimi, Claude Code and Codex tabs across the top — with
 past conversations in the sidebar. Session titles and project names in the
 screenshot are placeholders.*
 
 ## Features
 
-- **Two backends, one UI** — Spawn a Claude Code session or a Codex session from the same browser; each session is tagged with its backend (blue for Claude, emerald for Codex)
+- **Three backends, one UI** — Spawn Claude Code, Codex or Kimi Code from the same browser; every session is tagged with its backend (blue for Claude, emerald for Codex, violet for Kimi)
 - **History browser** — Cross-backend history view for up to the 25 most recently active sessions in the current backend / project filter. Search filters that loaded result set (there is no pagination yet); any listed session can be resumed in one click
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
 - **Chat view** — Flip any live session into a structured chat: message bubbles, rendered Markdown, collapsible tool-call strips, auto-scroll that pauses when you scroll up. It reads the CLI's own transcript file, so it holds the complete, scrollable record — the terminal viewport can truncate a long reply, the chat view never does. One tap back to the real terminal for TUI prompts and pickers.
 - **Send & interrupt from chat** — Type and send straight from the chat view (it writes to the PTY, same as typing in the terminal); a stop button interrupts the running agent. Attach an image or file inline — send a phone screenshot and the agent reads it.
 - **Tab strip for live sessions** — Open sessions line the top of the screen as browser-style tabs, each with its backend badge and a dot that pulses while the agent works. A parallel Claude and Codex are one glance apart, on a phone as much as on a desktop.
-- **Sidebar of past conversations** — The pane behind the tabs lists the 20 most recent conversations across both backends; tap one to resume it. A green dot means a live session is already writing that transcript, so tapping jumps into the running session instead of forking a second copy.
+- **Sidebar of past conversations** — The pane behind the tabs lists the 20 most recent conversations across every backend; tap one to resume it. A green dot means a live session is already writing that transcript, so tapping jumps into the running session instead of forking a second copy.
 - **Live status** — A session shows what it is doing right now (the current tool call while working) or a preview of its last reply when idle.
 - **New-session parameters** — Choose model, reasoning effort, and permission mode (Claude) or reasoning / sandbox (Codex) before spawning; every value is validated against the CLI's own flags.
 - **Multi-session** — Click "+" to spawn up to 10 concurrent sessions, switch freely between them
@@ -50,18 +50,20 @@ Browser (any device)          Server (your Mac)
 │                  │         │  └─ TerminalManager   │
 │  IndexedDB       │         │     ├─ tmux:ccrt-#1   │──► claude (PTY)
 │  (session list)  │         │     ├─ tmux:ccrt-#2   │──► codex  (PTY)
+│                  │         │     ├─ tmux:ccrt-#3   │──► kimi   (PTY)
 └──────────────────┘         │     └─ ...            │
                              │                       │
                              │  History scanner:     │
                              │  ~/.claude/projects/* │
                              │  ~/.codex/sessions/*  │
+                             │  ~/.kimi-code/sessions│
                              └──────────────────────┘
 ```
 
 - **server.ts** — Custom HTTP server serving Next.js pages + WebSocket upgrade on `/ws/terminal`
 - **TerminalManager** — Manages tmux-backed PTY lifecycles, ring buffers, attach/detach per session
-- **backends.ts** — Picks the right CLI (`claude` or `codex`) and builds the right argv, including `--resume` semantics for each
-- **history-index.ts** — Scans both `~/.claude/projects/*/` (Claude Code) and `~/.codex/sessions/*/` (Codex) and renders a unified history browser
+- **backends.ts** — Picks the right CLI (`claude`, `codex` or `kimi`) and builds the right argv, including each one's resume semantics (`--resume` / `resume` / `-S`)
+- **history-index.ts** — Scans `~/.claude/projects/*/` (Claude Code), `~/.codex/sessions/*/` (Codex) and `~/.kimi-code/sessions/*/` (Kimi, via its `session_index.jsonl`) into one unified history browser
 - **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — The read-side chat layer: finds the transcript file the CLI writes for a live session, tails it incrementally, parses it into structured messages + metadata (model, tokens, branch, tool calls), and streams them to the chat view. The CLI and terminal path stay untouched.
 - **WebSocket protocol** — JSON messages: `create` / `attach` / `input` / `resize` / `kill` / `list` (terminal), plus `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status` (chat + live status)
 
@@ -74,6 +76,7 @@ Browser (any device)          Server (your Mac)
 - At least one of:
   - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — looked up at `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`
   - [Codex CLI](https://github.com/openai/codex) — looked up at `/opt/homebrew/bin/codex`, `/usr/local/bin/codex`, `~/.local/bin/codex`
+  - [Kimi Code CLI](https://moonshotai.github.io/kimi-code/) — looked up at `~/.kimi-code/bin/kimi` first (its installer does not put itself on PATH), then `~/.local/bin/kimi` and the Homebrew prefixes
 
   You can install only one if you only need that backend; the UI will just fail to spawn the missing one.
 

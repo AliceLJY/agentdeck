@@ -488,6 +488,17 @@ export class TerminalManager {
   }
 
   private findBackendExecutable(backend: HistoryBackend): string {
+    if (backend === 'kimi') {
+      // kimi-code installs to ~/.kimi-code/bin, which is not on PATH by
+      // default — check there first so a missing PATH entry isn't read as
+      // "kimi is not installed".
+      return this.findExecutable('kimi', [
+        path.join(this.home, '.kimi-code', 'bin', 'kimi'),
+        path.join(this.home, '.local', 'bin', 'kimi'),
+        '/opt/homebrew/bin/kimi',
+        '/usr/local/bin/kimi',
+      ]);
+    }
     if (backend === 'codex') {
       return this.findExecutable('codex', [
         '/opt/homebrew/bin/codex',

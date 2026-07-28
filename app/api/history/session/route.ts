@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { normalizeBackend } from '@/lib/backends';
-import { readClaudeTranscript, readCodexTranscript } from '@/lib/history-index';
+import { readClaudeTranscript, readCodexTranscript, readKimiTranscript } from '@/lib/history-index';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,9 +23,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const transcript = backend === 'codex'
-      ? await readCodexTranscript({ projectId, sessionId })
-      : await readClaudeTranscript({ projectId, sessionId });
+    let transcript;
+    if (backend === 'codex') {
+      transcript = await readCodexTranscript({ projectId, sessionId });
+    } else if (backend === 'kimi') {
+      transcript = await readKimiTranscript({ projectId, sessionId });
+    } else {
+      transcript = await readClaudeTranscript({ projectId, sessionId });
+    }
     return NextResponse.json(transcript);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load transcript';

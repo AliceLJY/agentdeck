@@ -51,6 +51,13 @@ const CODEX_SANDBOXES: Choice[] = [
 ];
 
 /** Session-type / model / reasoning / permissions picker shown before spawning. */
+const KIMI_PERMISSIONS = [
+  { label: 'Default', value: '' },
+  { label: 'Yolo', value: 'yolo' },
+  { label: 'Auto', value: 'auto' },
+  { label: 'Plan', value: 'plan' },
+];
+
 export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelProps) {
   const [backend, setBackend] = useState<HistoryBackend>('claude');
   const [cwd, setCwd] = useState('');
@@ -71,6 +78,8 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
     if (backend === 'claude') {
       if (effort) options.effort = effort;
       if (permissionMode) options.permissionMode = permissionMode;
+    } else if (backend === 'kimi') {
+      if (permissionMode) options.permissionMode = permissionMode;
     } else {
       if (reasoningEffort) options.reasoningEffort = reasoningEffort;
       if (sandbox) options.sandbox = sandbox;
@@ -87,7 +96,11 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
 
         <Section label="Session type">
           <ChipRow
-            choices={[{ label: 'Claude', value: 'claude' }, { label: 'Codex', value: 'codex' }]}
+            choices={[
+              { label: 'Claude', value: 'claude' },
+              { label: 'Codex', value: 'codex' },
+              { label: 'Kimi', value: 'kimi' },
+            ]}
             value={backend}
             onChange={(v) => setBackend(v as HistoryBackend)}
           />
@@ -104,7 +117,23 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
           />
         </Section>
 
-        {backend === 'claude' ? (
+        {backend === 'kimi' ? (
+          <>
+            <Section label="Model">
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Default (config.toml default_model)"
+                spellCheck={false}
+                autoCapitalize="off"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-violet-400"
+              />
+            </Section>
+            <Section label="Permissions">
+              <ChipRow choices={KIMI_PERMISSIONS} value={permissionMode} onChange={setPermissionMode} accent="violet" />
+            </Section>
+          </>
+        ) : backend === 'claude' ? (
           <>
             <Section label="Model">
               <ChipRow choices={CLAUDE_MODELS} value={model} onChange={setModel} />
@@ -142,7 +171,11 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
             onClick={start}
             disabled={starting}
             className={`flex-1 rounded-xl py-3 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
-              backend === 'codex' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-blue-500 hover:bg-blue-600'
+              backend === 'codex'
+                ? 'bg-emerald-600 hover:bg-emerald-700'
+                : backend === 'kimi'
+                  ? 'bg-violet-600 hover:bg-violet-700'
+                  : 'bg-blue-500 hover:bg-blue-600'
             }`}
           >
             {starting ? 'Starting…' : 'Start session'}
@@ -177,11 +210,13 @@ function ChipRow({
   choices: Choice[];
   value: string;
   onChange: (value: string) => void;
-  accent?: 'blue' | 'emerald';
+  accent?: 'blue' | 'emerald' | 'violet';
 }) {
   const active = accent === 'emerald'
     ? 'bg-emerald-600 border-emerald-600 text-white'
-    : 'bg-blue-500 border-blue-500 text-white';
+    : accent === 'violet'
+      ? 'bg-violet-600 border-violet-600 text-white'
+      : 'bg-blue-500 border-blue-500 text-white';
   return (
     <div className="flex flex-wrap gap-2">
       {choices.map((choice) => (
