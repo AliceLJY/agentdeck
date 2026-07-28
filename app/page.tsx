@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Sidebar from '@/components/Sidebar';
 import SessionTabs from '@/components/SessionTabs';
@@ -205,6 +205,27 @@ export default function Home() {
     };
   }, [token]);
 
+  // Transcripts a live session is writing right now — the sidebar marks those
+  // rows so a tap resumes into the running session instead of forking it.
+  const liveTranscriptIds = useMemo(
+    () => new Set(
+      Object.values(statuses)
+        .filter((s): s is SessionStatus & { transcriptId: string } =>
+          Boolean(s.transcriptId) && aliveSessions.has(s.sessionId))
+        .map((s) => s.transcriptId),
+    ),
+    [statuses, aliveSessions],
+  );
+
+  // The history list is a snapshot; bump this when it is known to be stale.
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const refreshHistory = useCallback(() => setHistoryRefreshKey((n) => n + 1), []);
+
+  const openSidebar = useCallback(() => {
+    setSidebarOpen(true);
+    refreshHistory();
+  }, [refreshHistory]);
+
   // ── Session lifecycle handlers ──
 
   const [showNewPanel, setShowNewPanel] = useState(false);
@@ -294,8 +315,9 @@ export default function Home() {
       setActiveSessionId(id);
       setCreateOptions(null);
       setAliveSessions((prev) => new Set(prev).add(id));
+      refreshHistory();
     },
-    [refresh, setActiveSessionId],
+    [refresh, setActiveSessionId, refreshHistory],
   );
 
   const handleSessionExited = useCallback(async (id: string) => {
@@ -379,12 +401,10 @@ export default function Home() {
         `}
       >
         <Sidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          aliveSessions={aliveSessions}
-          statuses={statuses}
-          onSelect={handleSelectSession}
-          onDelete={handleDeleteSession}
+          token={token}
+          liveTranscriptIds={liveTranscriptIds}
+          refreshKey={historyRefreshKey}
+          onResume={handleNewSession}
           onCreate={handleOpenNewPanel}
           onClose={() => setSidebarOpen(false)}
           theme={theme}
@@ -403,7 +423,7 @@ export default function Home() {
           onSelect={handleSelectSession}
           onDelete={handleDeleteSession}
           onCreate={handleOpenNewPanel}
-          onOpenSidebar={() => setSidebarOpen(true)}
+          onOpenSidebar={openSidebar}
         />
 
         {/* Top bar — session-only: on the home screen the tab strip and

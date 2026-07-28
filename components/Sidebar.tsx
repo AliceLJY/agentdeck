@@ -1,31 +1,34 @@
 'use client';
 
-import type { SessionStatus, TerminalSessionMeta } from '@/lib/types';
-import SessionItem from './SessionItem';
+import type { TerminalCreateOptions } from '@/lib/types';
+import SidebarHistory from './SidebarHistory';
 import ThemeToggle from './ThemeToggle';
 
 type Theme = 'light' | 'dark' | 'system';
 
 interface SidebarProps {
-  sessions: TerminalSessionMeta[];
-  activeSessionId: string | null;
-  aliveSessions: Set<string>;
-  statuses?: Record<string, SessionStatus>;
-  onSelect: (id: string) => void;
-  onDelete: (id: string) => void;
+  token: string;
+  /** Transcript ids a live session is writing — marked as running in the list. */
+  liveTranscriptIds: Set<string>;
+  /** Bumped by the parent to force a history reload. */
+  refreshKey?: number;
+  onResume: (options: TerminalCreateOptions) => void;
   onCreate: () => void;
   onClose?: () => void;
   theme: Theme;
   setTheme: (t: Theme) => void;
 }
 
+/**
+ * Sessions you have talked to, not sessions you have open — the tab strip up
+ * top owns the live ones now, so this pane is free to answer the question it
+ * was always being asked: "take me back to that conversation."
+ */
 export default function Sidebar({
-  sessions,
-  activeSessionId,
-  aliveSessions,
-  statuses,
-  onSelect,
-  onDelete,
+  token,
+  liveTranscriptIds,
+  refreshKey,
+  onResume,
   onCreate,
   onClose,
   theme,
@@ -68,25 +71,17 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Session list */}
+      {/* Recent conversations */}
       <div className="flex-1 overflow-y-auto py-1">
-        {sessions.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-gray-400 dark:text-gray-500">
-            No sessions yet
-          </div>
-        ) : (
-          sessions.map((session) => (
-            <SessionItem
-              key={session.id}
-              session={session}
-              isActive={session.id === activeSessionId}
-              isAlive={aliveSessions.has(session.id)}
-              status={statuses?.[session.id]}
-              onSelect={() => onSelect(session.id)}
-              onDelete={() => onDelete(session.id)}
-            />
-          ))
-        )}
+        <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          Recent
+        </div>
+        <SidebarHistory
+          token={token}
+          liveTranscriptIds={liveTranscriptIds}
+          refreshKey={refreshKey}
+          onResume={onResume}
+        />
       </div>
 
       {/* Theme toggle at bottom */}
