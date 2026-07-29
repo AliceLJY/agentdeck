@@ -55,7 +55,10 @@ interface TerminalViewProps {
   token: string;
   theme: 'light' | 'dark';
   onSessionCreated?: (id: string, title: string, backend: HistoryBackend) => void;
-  onSessionExited?: (id: string) => void;
+  /** `lastWords` is set only when the CLI died within seconds of spawning,
+   *  i.e. it refused to start and printed why. The caller uses it to decide
+   *  whether the view may close — that reason has to stay readable. */
+  onSessionExited?: (id: string, lastWords?: string) => void;
   onInput?: (sendFn: (data: string) => void) => void;
 }
 
@@ -397,7 +400,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 if (msg.lastOutput) {
                   term.write(`\x1b[90m${msg.lastOutput.replace(/\n/g, '\r\n')}\x1b[0m\r\n`);
                 }
-                onSessionExited?.(msg.sessionId);
+                onSessionExited?.(msg.sessionId, msg.lastOutput);
                 break;
 
               case 'error':
