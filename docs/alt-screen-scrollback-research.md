@@ -5,6 +5,34 @@
 
 ---
 
+## ⚠️ 结论已被取代（2026-07-29）
+
+**下面选中的方案 C（overlay + SerializeAddon）没有实施，也不再需要。** 实际走的是一条更短的路：
+在 `TerminalView.tsx` 收到 PTY 数据时**直接把 alt screen 切换序列剥掉**
+（`term.write(msg.data.replace(/\x1b\[\?(1049|1047|47)[hl]/g, ''))`），TUI 内容因此全部落进
+normal buffer，10000 行 scrollback 天然可滚，不必再维护第二个 xterm 实例去显示历史快照。
+
+**但 2026-07-29 发现痛点仍在，且根因换了一层**：真正卡住的不是 alt screen，是
+**xterm.js 在 iOS 上的触摸限制**——[#3613](https://github.com/xtermjs/xterm.js/issues/3613)
+「只有从没有文字的地方起手才滚得动」，而满屏输出根本没有空白可抓；Android 不受影响
+（这也解释了同一台 harness 上 OPPO 正常、iPhone 不行）。上游 [#1101](https://github.com/xtermjs/xterm.js/issues/1101)
+/ [#5377](https://github.com/xtermjs/xterm.js/issues/5377) 挂了多年。**已在 app 层接管
+touch 手势解决**（阈值 6px → `term.scrollLines` → 松手惯性），思路仍是本文第 2.1 节说的
+「Terminal.app 在 app 层拦截滚轮」，只是拦的是 touch 而非 wheel。
+
+**因此本文以下内容只作历史记录**：方案对比表里的工作量估算（C = 2-4h）与选型理由都建立在
+「alt screen 未被剥离」这个已不成立的前提上。第 6 节风险表里唯一仍然有效的一行是
+「移动端触摸手势 / Medium / 需独立一轮跨平台测试」——它后来正是唯一真实发生的问题。
+
+同期查证的另一条：**Orca 的做法借鉴不过来**。它宣传的 "scrollback survives restarts" 解决的是
+「重启不丢历史」（@xterm/headless + SerializeAddon 落盘冷恢复），与「alt screen 里能不能滚」
+不是同一个问题；而它手机端能顺畅滚动，是因为那是 React Native 原生 app，压根不经过
+Safari 的触摸事件模型。详见 `shared-research/前沿扫描/orca-vs-cc-remote-term-code-comparison-2026-07-22.md`。
+
+---
+
+---
+
 ## 1. 问题根源
 
 所有使用 **alt screen buffer** 的 TUI 程序（`\x1b[?1049h` / `\x1b[?47h` / `\x1b[?1047h`），POSIX 标准行为是「alt screen 期间没有 scrollback」。终端模拟器收到 alt screen 激活信号后：
