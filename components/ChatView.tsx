@@ -329,14 +329,11 @@ function MessageRow({ message }: { message: ChatMessage }) {
       {message.tools.length > 0 && <ToolStrip tools={message.tools} />}
       {hasText && (
         <div className="chat-md max-w-none text-[15px] leading-relaxed text-gray-900 dark:text-gray-100">
+          {/* Only fenced blocks get a copy button. Prose selects fine by hand,
+              so a per-reply button was just noise on every message. */}
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>
             {message.text}
           </ReactMarkdown>
-          {/* Copying out of the terminal on a phone is painful, so every
-              answer carries its own one-tap copy of the raw markdown. */}
-          <div className="mt-1 flex justify-end">
-            <CopyButton getText={() => message.text} label="Copy reply" />
-          </div>
         </div>
       )}
     </div>
