@@ -1,11 +1,16 @@
 # AgentDeck
 
-给 AI 编程 CLI 用的 Web 远程终端——[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上：走 [frp](https://github.com/fatedier/frp) 反向隧道时不挑网络，不想暴露在公网上时走 [Tailscale](https://tailscale.com/)。
+给 AI 编程 CLI 用的 Web 远程终端，一个标签页一个。手机、平板、电脑，任何设备都能通过浏览器连上：走 [frp](https://github.com/fatedier/frp) 反向隧道时不挑网络，不想暴露在公网上时走 [Tailscale](https://tailscale.com/)。
 
-**架构上能装任何 agent CLI，不只这两个。** 这里的一个 backend，无非是「一条 CLI 路径
-+ 它的 argv 规则」——怎么启动、怎么 resume、哪些 flag 是安全的（`lib/backends.ts`）。
-这层之上的东西（PTY、tmux 持久化、标签栏、对话视图、历史浏览）全都与具体 agent 无关，
-所以让它认识一个新 CLI 是在那个文件里加一条，不用动传输层——Kimi 就是这么进来的。
+**装任何 agent CLI，不是一份固定名单。** 传输层是 tmux 背后的真 PTY，所以你终端里
+能跑的东西，这里都能跑——它从不假设对面是哪个程序。管道部分（重启后会话还在、标签栏、
+文件上传、触摸滚动、粘贴）全都与具体 agent 无关，接任何 CLI 都是白拿。
+
+**一个 backend 条目多买到的是「理解」**：对话视图、历史浏览、一键 resume 得知道这家 CLI
+把 transcript 放在哪、长什么样。[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、
+[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)
+内置了这份理解——这三个只是我天天在用、端到端实测过的那几个。接第四个是一天的适配活，
+不用动传输层，见[接一个新 CLI](#接一个新-cli)。
 
 **是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
 
@@ -18,7 +23,7 @@
 
 ## 功能
 
-- **三个 backend，一个 UI** — 同一个浏览器里能开 Claude Code、Codex、Kimi Code；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿、Kimi 紫）
+- **混着开，一个 UI** — 同一个浏览器里能开 Claude Code、Codex、Kimi Code 并排跑；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿、Kimi 紫）。别的 CLI 一样能占一个标签，只是在有人给它写适配之前，没有对话视图和历史这两层
 - **历史浏览** — 跨 backend 的 history view：按当前 backend / 项目筛选展示最近活跃的最多 25 个 session；搜索只过滤这批已加载结果（暂时没有翻页），列表里的 session 可以点一下 resume
 - **真终端** — xterm.js 渲染完整终端体验，不是 Markdown 聊天框
 - **对话视图** — 任意 live session 一键翻成结构化对话：消息气泡、Markdown 渲染、可折叠的工具调用条、自动滚底（往上翻就暂停）。它读的是 CLI 自己写的 transcript 文件，所以拿到的是完整、能滚的记录——终端取景框会把长回复裁掉半截，对话视图不会。要点 TUI 选择框 / 权限确认，一键切回真终端。
@@ -32,7 +37,8 @@
 - **5MB 环形缓冲** — 每个 Session 保留 5MB 输出历史，attach / 重连时 replay，跨设备切换不丢上下文
 - **文件上传** — 拖拽到终端区域，或在两个视图里点回形针，把文件交给正在跑的 agent
 - **三端通用** — iPhone、iPad、安卓、电脑浏览器都能连：frp 反向隧道走任意网络，或在 Tailscale 网内直连
-- **iPad / iOS 友好** — 触摸快捷键栏（Esc、Tab、Ctrl+C、方向键）+ iOS 26 IME 输入修复
+- **为拇指做的** — 触摸快捷键栏（Esc、Tab、`^C`、方向键、粘贴）+ iOS 26 IME 输入修复。终端上随便按住哪儿都能拖着翻历史，甩一下有惯性：xterm.js 在 iOS 上只有从**没字的地方**起手才滚得动（[#3613](https://github.com/xtermjs/xterm.js/issues/3613)），而满屏输出时根本找不到空白，所以这个手势改由本项目自己接管。长按仍然出系统的选择菜单；反方向有粘贴按钮兜着——iOS 压根没法碰到终端接收粘贴的那个隐藏输入框
+- **复制不再费劲** — 一下点掉：复制一个代码块、复制整条回复、或复制历史视图里的任意一条。代码块按气泡宽度折行，不再横向滚动——在手机上拖那条横向滚动条实在不是人干的事
 - **深色/浅色主题** — 跟随系统，侧边栏可切换
 - **Token 认证** — token 不会写入页面 HTML；通过 `?token=` 链接或登录框提供，浏览器会记住
 - **单端口** — HTTP + WebSocket 共用一个端口（默认 3109）
@@ -211,6 +217,29 @@ Session 参数（`lib/types.ts`）：
 | `MAX_SESSIONS` | 10 | 最大并发 PTY 数 |
 | `IDLE_TIMEOUT` | 30 分钟 | 空闲 Session 自动回收 |
 | `RING_BUFFER_SIZE` | 5 MB | 每个 Session 的输出历史缓冲（attach / 重连时 replay） |
+
+## 接一个新 CLI
+
+内置这三个不是封闭名单，只是端到端实测过的那几个。接第四个的活分成两半，贵的那半还是可选的。
+
+**白拿，一行不用写。** 启动、PTY、tmux 重启后会话还在、标签栏、环形缓冲、文件上传、
+触摸滚动、粘贴——这些全都不知道也不关心对面是哪个 CLI。任何交互式程序都直接继承。
+
+**要写的是适配层。** 对话视图、历史浏览、一键 resume 是另一回事：它们要读这家 CLI
+自己写在磁盘上的 transcript，就得知道它长什么样。接 Kimi 当第三个 backend 时，动的
+恰好就是下面这些，传输层一行没改：
+
+| 文件 | 它需要学会的事 |
+|---|---|
+| `lib/backends.ts` | argv 规则——怎么启动、怎么 resume、放行哪些 flag、徽章配色 |
+| `lib/terminal-manager.ts` | 可执行文件在哪（Kimi 的安装器不进 `PATH`，只查 `PATH` 会误判成「没装」） |
+| `lib/history-index.ts` | 会话索引落在磁盘哪里、怎么遍历 |
+| `lib/transcript-parser.ts` | transcript 格式——最重的一块。Claude 和 Codex 记的是消息，Kimi 记的是事件流，得折回成消息 |
+| `lib/session-discovery.ts` | 怎么认出刚起的这个会话对应哪份 transcript |
+| UI | 新建面板一个选项、首页一个筛选、一个颜色 |
+
+各家格式的差别比想象中大，所以这是一天的活而不是改个配置——但它**始终**只是一天的活，
+因为传输层从头到尾不参与。
 
 ## 技术栈
 

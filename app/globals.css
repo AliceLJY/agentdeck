@@ -71,6 +71,20 @@
     position: relative;
 }
 
+/* On touch devices xterm's own selection never engages (xtermjs/xterm.js#3727),
+   which leaves no way at all to copy text out of the terminal. Hand the job
+   back to the browser: long-press gives the native selection menu. Safe here
+   because touch devices render rows as DOM (WebGL is disabled above — it
+   garbles text on iOS), and because our touch handler only claims the gesture
+   once the finger has actually moved, so a stationary long-press still selects. */
+@media (hover: none) and (pointer: coarse) {
+    .xterm .xterm-screen,
+    .xterm .xterm-rows {
+        user-select: text;
+        -webkit-user-select: text;
+    }
+}
+
 .xterm .xterm-screen canvas {
     position: absolute;
     left: 0;

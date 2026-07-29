@@ -1,12 +1,20 @@
 # AgentDeck
 
-A web-based remote terminal for AI coding CLIs — [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex](https://github.com/openai/codex) and [Kimi Code](https://moonshotai.github.io/kimi-code/), a tab each. Reach them from any device — phone, tablet, or desktop — through a reverse tunnel ([frp](https://github.com/fatedier/frp)) from any network, or over [Tailscale](https://tailscale.com/) when you would rather not be on the public internet at all.
+A web-based remote terminal for AI coding CLIs, one tab each. Reach them from any device — phone, tablet, or desktop — through a reverse tunnel ([frp](https://github.com/fatedier/frp)) from any network, or over [Tailscale](https://tailscale.com/) when you would rather not be on the public internet at all.
 
-**Built to hold any agent CLI, not just these two.** A backend here is nothing
-but a CLI path plus its argv rules — how to launch it, how to resume a session,
-which flags are safe (`lib/backends.ts`). Everything above that layer (PTY, tmux
-persistence, tabs, chat view, history) is agent-agnostic, so teaching the deck a
-new CLI is one entry in that file, not a new transport — that is how Kimi joined.
+**Any agent CLI, not a fixed list.** The transport is a real PTY behind tmux, so
+whatever runs in your terminal runs here — the deck never assumes which program
+is on the other end. Everything in the plumbing (persistence across restarts,
+tabs, file upload, touch scrolling, paste) is agent-agnostic and comes free with
+any CLI you point it at.
+
+What a *backend entry* adds on top is **understanding**: the chat view, the
+history browser and one-click resume have to know where that CLI keeps its
+transcript and how to read it. [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
+[Codex](https://github.com/openai/codex) and [Kimi Code](https://moonshotai.github.io/kimi-code/)
+ship with that built in — those three are simply the ones I run daily and have
+tested end to end. Teaching it a fourth is a day of adapter work, not a new
+transport; see [Adding a CLI](#adding-a-cli).
 
 **A real terminal, not a chat wrapper.** xterm.js + node-pty + tmux run the upstream CLI interactively, exactly as it behaves in your local terminal. Layered on top is an optional **chat view** — the same live session rendered as clean, scrollable message bubbles, so reading long replies and typing on a phone feel native, without giving up the real terminal underneath.
 
@@ -20,7 +28,7 @@ screenshot are placeholders.*
 
 ## Features
 
-- **Three backends, one UI** — Spawn Claude Code, Codex or Kimi Code from the same browser; every session is tagged with its backend (blue for Claude, emerald for Codex, violet for Kimi)
+- **Mixed CLIs, one UI** — Spawn Claude Code, Codex or Kimi Code from the same browser and run them side by side; every session is tagged with its backend (blue for Claude, emerald for Codex, violet for Kimi). Any other CLI can take a tab too — it just won't have the chat and history layers until someone writes its adapter
 - **History browser** — Cross-backend history view for up to the 25 most recently active sessions in the current backend / project filter. Search filters that loaded result set (there is no pagination yet); any listed session can be resumed in one click
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
 - **Chat view** — Flip any live session into a structured chat: message bubbles, rendered Markdown, collapsible tool-call strips, auto-scroll that pauses when you scroll up. It reads the CLI's own transcript file, so it holds the complete, scrollable record — the terminal viewport can truncate a long reply, the chat view never does. One tap back to the real terminal for TUI prompts and pickers.
@@ -34,7 +42,8 @@ screenshot are placeholders.*
 - **Session ring buffer** — 5 MB of output per session is replayed on reconnect, so switching devices doesn't lose context
 - **File upload** — Drag & drop onto the terminal, or click the paperclip in either view, to hand files to the running agent
 - **Cross-device** — Works on iPhone, iPad, Android, and desktop browsers: over an frp reverse tunnel from any network, or inside a Tailscale tailnet
-- **iPad / iOS-friendly** — Touch key bar (Esc, Tab, Ctrl+C, arrows) and IME fixes for iOS 26
+- **Built for thumbs** — Touch key bar (Esc, Tab, `^C`, arrows, paste) plus IME fixes for iOS 26. Drag anywhere on the terminal to scroll its history, with a flick that carries: xterm.js on iOS only scrolls when the drag starts on blank space ([#3613](https://github.com/xtermjs/xterm.js/issues/3613)), which a full screen never has, so the gesture is handled here instead. Long-press still opens the native selection menu, and a paste button covers the other direction — iOS gives no way to reach the hidden textarea a terminal pastes into
+- **Copy without the fight** — One tap copies a code block, a whole reply, or any message in the history view. Code blocks wrap to the bubble instead of scrolling sideways, because dragging a horizontal scrollbar on a phone is nobody's idea of a good time
 - **Dark/Light theme** — Follows system preference, toggleable in sidebar
 - **Token auth** — The token is never embedded in the page HTML; supply it via a `?token=` link or the login prompt, and it's remembered per browser
 - **Single port** — HTTP + WebSocket on one port (default 3109), simple firewall setup
@@ -219,6 +228,34 @@ Session limits (in `lib/types.ts`):
 | `MAX_SESSIONS` | 10 | Maximum concurrent PTY sessions |
 | `IDLE_TIMEOUT` | 30 min | Auto-kill detached idle sessions |
 | `RING_BUFFER_SIZE` | 5 MB | Output history per session (replayed on attach / reconnect) |
+
+## Adding a CLI
+
+The three built-in backends are not a closed set — they are the ones that have
+been tested end to end. The work of adding a fourth splits cleanly in two, and
+the expensive half is optional.
+
+**Free, no code.** Launching, the PTY, tmux persistence across restarts, tabs,
+the ring buffer, file upload, touch scrolling, paste — none of it knows or cares
+which CLI it is talking to. Any interactive program inherits all of it.
+
+**The adapter.** The chat view, the history browser and one-click resume are a
+different matter: they read the CLI's own transcript from disk, so they need to
+know its shape. Adding Kimi as the third backend touched exactly these, and
+nothing in the transport layer:
+
+| File | What it learns |
+|---|---|
+| `lib/backends.ts` | argv rules — how to launch, how to resume, which flags are allowed through, badge colour |
+| `lib/terminal-manager.ts` | where the executable lives (Kimi's installer skips `PATH`, so `PATH` alone reports "not installed") |
+| `lib/history-index.ts` | where sessions are indexed on disk, and how to walk that index |
+| `lib/transcript-parser.ts` | the transcript format — the heavy one. Claude and Codex log messages; Kimi logs an event stream that has to be folded back into messages |
+| `lib/session-discovery.ts` | how to tell which transcript belongs to a session you just spawned |
+| UI | an option in the new-session panel, a filter on the home screen, a colour |
+
+Formats differ more than you would expect, which is why this is a day of work
+rather than a config entry — but it stays a day of work, because the transport
+never enters the picture.
 
 ## Tech Stack
 
