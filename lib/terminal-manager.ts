@@ -282,6 +282,14 @@ export class TerminalManager {
     // control sockets only claim ownership; their transcript/status channels
     // already carry what they render.
     if (streamOutput) {
+      // Scrollback first (tmux holds it — see captureTmuxHistory), then the
+      // live screen from the ring buffer. Sent as two messages on purpose: the
+      // history is a one-shot snapshot taken now, while the buffer keeps
+      // replaying whatever has streamed since.
+      const history = this.captureTmuxHistory(session.tmuxName);
+      if (history.length > 0) {
+        ws.send(JSON.stringify({ type: 'output', data: history }));
+      }
       const buffered = session.buffer.read();
       if (buffered.length > 0) {
         ws.send(JSON.stringify({ type: 'output', data: buffered }));
@@ -373,6 +381,40 @@ export class TerminalManager {
   }
 
   // ─── PTY Bridge ───
+
+  /**
+   * Pull a session's scrollback out of tmux so the browser can scroll through it.
+   *
+   * tmux is the one holding the history here. It is a full terminal emulator,
+   * not the passive "session container" the comment in tmux.conf claims: every
+   * line goes into its own 50k-line history and only the current screen is ever
+   * repainted down the PTY. The browser's xterm therefore sees repaints and
+   * nothing else, and ends up with an empty scrollback — measured on a fresh
+   * session, tmux held 209 lines while xterm held 0. "The terminal will not
+   * scroll" was always "there is nothing above the fold to scroll to".
+   *
+   * `-e` keeps the colours, `-J` rejoins wrapped lines, and `-E -1` stops one
+   * line short of the visible screen — the ring-buffer replay that follows this
+   * already carries that screen, and without the cutoff every attach would show
+   * it twice.
+   */
+  private captureTmuxHistory(tmuxName: string, lines = 1000): string {
+    try {
+      const out = execFileSync(
+        this.tmuxPath,
+        ['-L', TMUX_SOCKET, 'capture-pane', '-p', '-e', '-J',
+          '-S', `-${lines}`, '-E', '-1', '-t', tmuxName],
+        { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 3000 },
+      );
+      const trimmed = out.replace(/\s+$/, '');
+      // capture-pane emits bare \n; xterm runs with convertEol off.
+      return trimmed ? trimmed.replace(/\n/g, '\r\n') + '\r\n' : '';
+    } catch {
+      // Best-effort. A session with no history, or a tmux that declines, must
+      // never take the attach down with it.
+      return '';
+    }
+  }
 
   private spawnBridge(tmuxName: string, cols: number, rows: number): pty.IPty {
     return pty.spawn(this.tmuxPath, ['-L', TMUX_SOCKET, '-u', 'attach-session', '-t', tmuxName], {
