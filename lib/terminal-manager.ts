@@ -205,8 +205,19 @@ export class TerminalManager {
       backendArgs = [backendExecutable, 'agents'];
     }
 
+    // Claude Code's fullscreen renderer draws the conversation on the alternate
+    // screen buffer, which by definition has no scrollback — the history simply
+    // is not reachable from the terminal, here or in iTerm2. Its classic
+    // renderer streams into the normal buffer instead, which is what makes the
+    // transcript scrollable and selectable at all. Forced per session rather
+    // than by touching the user's global `tui` setting: fullscreen stays on
+    // where it earns its keep (a desktop terminal, where flicker is the
+    // problem), and off here, where being able to scroll and copy on a phone
+    // matters more. Codex gets the same treatment via its --no-alt-screen flag.
+    const rendererEnv = backend === 'claude' ? ' CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1' : '';
+
     // Create detached tmux session running the selected CLI with correct env.
-    const envCmd = `env PATH=${shellQuote(this.enrichedEnv.PATH)} TERM=xterm-256color FORCE_COLOR=1 HOME=${shellQuote(this.home)} ${backendArgs.map(shellQuote).join(' ')}`;
+    const envCmd = `env PATH=${shellQuote(this.enrichedEnv.PATH)} TERM=xterm-256color FORCE_COLOR=1 HOME=${shellQuote(this.home)}${rendererEnv} ${backendArgs.map(shellQuote).join(' ')}`;
     this.tmuxExec(['new-session', '-d', '-s', tmuxName, '-x', String(cols), '-y', String(rows), '-c', cwd, envCmd]);
 
     // Spawn PTY bridge
