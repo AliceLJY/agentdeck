@@ -204,12 +204,21 @@ export function handleWebSocket(
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code: number, reason: Buffer) => {
     transcriptHub.release(ws);
+    // The close code separates "the browser deliberately hung up" (1000/1001 —
+    // a React unmount, a navigation) from "the link died" (1006 — no close
+    // frame arrived, i.e. the tunnel or the radio dropped it). Without this
+    // the log cannot tell a UI bug from a network one.
+    const why = reason?.length ? ` reason="${reason.toString()}"` : '';
     if (currentSessionId) {
       terminalManager.detach(currentSessionId, ws);
-      console.log(`[agentdeck] WS closed, detached session ${currentSessionId}`);
+      console.log(
+        `[agentdeck] WS closed (code=${code}${why}), detached session ${currentSessionId}`,
+      );
       currentSessionId = null;
+    } else {
+      console.log(`[agentdeck] WS closed (code=${code}${why}), no session attached`);
     }
   });
 
