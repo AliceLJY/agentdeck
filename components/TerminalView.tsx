@@ -116,6 +116,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       let fitAddon: FitAddonType;
       let resizeObserver: ResizeObserver | null = null;
       let detachTouchScroll: (() => void) | null = null;
+      let detachViewportWatch: (() => void) | null = null;
 
       const init = async () => {
         // Dynamic import to avoid SSR issues
@@ -313,23 +314,47 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // ─── WebSocket Connection ───
         connectWebSocket(term, fitAddon);
 
-        // ─── ResizeObserver ───
-        resizeObserver = new ResizeObserver(() => {
-          if (fitAddon && term.element) {
-            fitAddon.fit();
-            const ws = wsRef.current;
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: 'resize',
-                  cols: term.cols,
-                  rows: term.rows,
-                }),
-              );
-            }
+        // ─── Keeping the grid the size of the screen ───
+        const refit = () => {
+          if (disposed || !fitAddon || !term.element) return;
+          fitAddon.fit();
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: 'resize',
+                cols: term.cols,
+                rows: term.rows,
+              }),
+            );
           }
-        });
+        };
+
+        // A fold/unfold or a rotation changes the viewport in steps, and the
+        // frame right after the event often still reports the old geometry —
+        // measure again once it has settled. Unlike the chat view, which is
+        // plain DOM and reflows on its own, the terminal is a character grid
+        // that only resizes when told to, so a missed event leaves it stuck at
+        // the old column count on a screen that is now much wider.
+        let settleTimer: ReturnType<typeof setTimeout> | null = null;
+        const refitAfterSettle = () => {
+          refit();
+          if (settleTimer) clearTimeout(settleTimer);
+          settleTimer = setTimeout(refit, 250);
+        };
+
+        resizeObserver = new ResizeObserver(refit);
         resizeObserver.observe(containerRef.current);
+
+        window.addEventListener('resize', refitAfterSettle);
+        window.visualViewport?.addEventListener('resize', refitAfterSettle);
+        window.screen?.orientation?.addEventListener?.('change', refitAfterSettle);
+        detachViewportWatch = () => {
+          if (settleTimer) clearTimeout(settleTimer);
+          window.removeEventListener('resize', refitAfterSettle);
+          window.visualViewport?.removeEventListener('resize', refitAfterSettle);
+          window.screen?.orientation?.removeEventListener?.('change', refitAfterSettle);
+        };
       };
 
       const connectWebSocket = (term: XTerminal, fitAddon: FitAddonType) => {
@@ -471,6 +496,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         }
 
         detachTouchScroll?.();
+        detachViewportWatch?.();
 
         if (wsRef.current) {
           wsRef.current.close();

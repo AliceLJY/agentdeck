@@ -329,12 +329,57 @@ function MessageRow({ message }: { message: ChatMessage }) {
       {message.tools.length > 0 && <ToolStrip tools={message.tools} />}
       {hasText && (
         <div className="chat-md max-w-none text-[15px] leading-relaxed text-gray-900 dark:text-gray-100">
-          {/* Only fenced blocks get a copy button. Prose selects fine by hand,
-              so a per-reply button was just noise on every message. */}
-          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>
+          {/* Only block-shaped things get a copy button — fenced code and
+              tables. Prose selects fine by hand, so a per-reply button was
+              just noise on every message. */}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              pre: CodeBlock,
+              table: (props) => <TableBlock {...props} source={message.text} />,
+            }}
+          >
             {message.text}
           </ReactMarkdown>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A table with a copy button that yields the original Markdown — pipes, dashes
+ * and all — rather than the rendered cells. Copying a rendered table gives you
+ * text whose columns have collapsed into spaces, which pastes back as garbage;
+ * the pipe form survives a round trip into another chat or a file.
+ *
+ * The source range comes from the mdast node's offsets, so the exact bytes the
+ * author wrote are recovered instead of being re-serialised from the DOM.
+ */
+function TableBlock({
+  node,
+  children,
+  source,
+  ...props
+}: React.ComponentPropsWithoutRef<'table'> & {
+  node?: { position?: { start?: { offset?: number }; end?: { offset?: number } } };
+  source: string;
+}) {
+  const start = node?.position?.start?.offset;
+  const end = node?.position?.end?.offset;
+  const markdown =
+    typeof start === 'number' && typeof end === 'number' ? source.slice(start, end) : '';
+
+  return (
+    <div className="relative">
+      <table {...props}>{children}</table>
+      {markdown && (
+        <CopyButton
+          getText={() => markdown}
+          iconOnly
+          label="Copy table as Markdown"
+          className="absolute right-1 top-1"
+        />
       )}
     </div>
   );
