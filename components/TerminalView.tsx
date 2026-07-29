@@ -11,6 +11,7 @@ import type { Terminal as XTerminal } from '@xterm/xterm';
 import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
 import type { ServerMessage, TerminalCreateOptions } from '@/lib/types';
 import type { HistoryBackend } from '@/lib/backends';
+import { bracketed } from '@/lib/paste';
 
 // ─── Terminal Themes ───
 
@@ -180,12 +181,20 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             'input',
             (ev) => {
               const ie = ev as InputEvent;
-              // Only intercept text insertion; deletions flow via keydown (Backspace)
-              // which xterm handles correctly.
-              if (ie.inputType !== 'insertText' || !ie.data) return;
+              // Text insertion only; deletions flow via keydown (Backspace),
+              // which xterm handles correctly. `insertFromPaste` covers an
+              // external keyboard's Cmd+V and any keyboard whose paste key
+              // routes through the textarea — without it a paste was dropped
+              // silently here.
+              const isPaste = ie.inputType === 'insertFromPaste';
+              if (ie.inputType !== 'insertText' && !isPaste) return;
+              // Safari fills `data` when typing but can leave it null on paste,
+              // where the text sits in dataTransfer instead.
+              const text = ie.data ?? ie.dataTransfer?.getData('text') ?? '';
+              if (!text) return;
               const ws = wsRef.current;
               if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'input', data: ie.data }));
+                ws.send(JSON.stringify({ type: 'input', data: isPaste ? bracketed(text) : text }));
               }
               helperTa.value = '';
               ev.stopImmediatePropagation();

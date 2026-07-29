@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import CopyButton from '@/components/CopyButton';
 import type {
   ClaudeHistoryIndex,
   ClaudeHistoryProject,
@@ -481,12 +482,18 @@ function TranscriptPane({
         ) : transcript ? (
           <div className="space-y-3 pb-8">
             {transcript.messages.map((message) => (
-              <pre
-                key={message.id}
-                className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-[13px] leading-relaxed text-gray-800 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100"
-              >
-                {formatTranscriptMessageBlock(message)}
-              </pre>
+              <div key={message.id} className="relative">
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 py-2 pl-3 pr-11 font-mono text-[13px] leading-relaxed text-gray-800 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100">
+                  {formatTranscriptMessageBlock(message)}
+                </pre>
+                {/* Looking up a command someone gave you three days ago is the
+                    main reason to open history at all — make taking it out one tap. */}
+                <CopyButton
+                  getText={() => formatTranscriptMessageBlock(message)}
+                  iconOnly
+                  className="absolute right-1.5 top-1.5"
+                />
+              </div>
             ))}
           </div>
         ) : (
