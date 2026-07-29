@@ -112,6 +112,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       let term: XTerminal;
       let fitAddon: FitAddonType;
       let resizeObserver: ResizeObserver | null = null;
+      let detachTouchScroll: (() => void) | null = null;
 
       const init = async () => {
         // Dynamic import to avoid SSR issues
@@ -201,6 +202,109 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             },
             true,
           );
+        }
+
+        // ─── Touch scrolling ───
+        // xterm.js on iOS only scrolls when the drag *starts on blank space*
+        // (xtermjs/xterm.js#3613); a drag that starts on a glyph is taken as a
+        // text-selection gesture and the viewport never moves. A terminal full
+        // of output has no blank space to grab, so the history is effectively
+        // unreachable — Android is unaffected, which is why it only bites on
+        // the iPhone. Upstream has had this open for years (#1101, #5377), so
+        // intercept the gesture here and drive the buffer ourselves. This is
+        // what Terminal.app does too: the app layer owns the scroll.
+        if (isTouchDevice && containerRef.current) {
+          const el = containerRef.current;
+          const MOVE_THRESHOLD_PX = 6;   // below this a touch is still a tap
+          let lastY = 0;
+          let carry = 0;                 // sub-line remainder, keeps drags smooth
+          let dragging = false;
+          let velocity = 0;              // lines per frame, for the flick
+          let lastMoveAt = 0;
+          let momentum: number | null = null;
+
+          const lineHeight = () => {
+            const screen = el.querySelector<HTMLElement>('.xterm-screen');
+            const rows = term.rows || 24;
+            const h = screen ? screen.clientHeight / rows : 0;
+            return h > 0 ? h : 20;
+          };
+
+          const stopMomentum = () => {
+            if (momentum !== null) {
+              cancelAnimationFrame(momentum);
+              momentum = null;
+            }
+          };
+
+          const onTouchStart = (e: TouchEvent) => {
+            if (e.touches.length !== 1) return;
+            stopMomentum();
+            lastY = e.touches[0].clientY;
+            carry = 0;
+            velocity = 0;
+            dragging = false;
+            lastMoveAt = performance.now();
+          };
+
+          const onTouchMove = (e: TouchEvent) => {
+            if (e.touches.length !== 1) return;
+            const y = e.touches[0].clientY;
+            const dy = lastY - y;        // finger up ⇒ move toward newer output
+            if (!dragging && Math.abs(dy) < MOVE_THRESHOLD_PX) return;
+            dragging = true;
+            // Past the threshold this is a scroll, not a selection or a tap.
+            e.preventDefault();
+
+            const h = lineHeight();
+            carry += dy / h;
+            const lines = Math.trunc(carry);
+            if (lines !== 0) {
+              carry -= lines;
+              term.scrollLines(lines);
+            }
+
+            const now = performance.now();
+            const dt = now - lastMoveAt;
+            if (dt > 0) velocity = (dy / h) * (16 / dt);   // normalise to ~60fps
+            lastMoveAt = now;
+            lastY = y;
+          };
+
+          const onTouchEnd = () => {
+            if (!dragging) return;
+            dragging = false;
+            // Ignore a stale flick: lifting after a pause should just stop.
+            if (performance.now() - lastMoveAt > 100 || Math.abs(velocity) < 0.4) return;
+
+            const step = () => {
+              velocity *= 0.94;
+              if (Math.abs(velocity) < 0.08) {
+                momentum = null;
+                return;
+              }
+              carry += velocity;
+              const lines = Math.trunc(carry);
+              if (lines !== 0) {
+                carry -= lines;
+                term.scrollLines(lines);
+              }
+              momentum = requestAnimationFrame(step);
+            };
+            momentum = requestAnimationFrame(step);
+          };
+
+          el.addEventListener('touchstart', onTouchStart, { passive: true });
+          el.addEventListener('touchmove', onTouchMove, { passive: false });
+          el.addEventListener('touchend', onTouchEnd, { passive: true });
+          el.addEventListener('touchcancel', onTouchEnd, { passive: true });
+          detachTouchScroll = () => {
+            stopMomentum();
+            el.removeEventListener('touchstart', onTouchStart);
+            el.removeEventListener('touchmove', onTouchMove);
+            el.removeEventListener('touchend', onTouchEnd);
+            el.removeEventListener('touchcancel', onTouchEnd);
+          };
         }
 
         // ─── WebSocket Connection ───
@@ -362,6 +466,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         if (resizeObserver) {
           resizeObserver.disconnect();
         }
+
+        detachTouchScroll?.();
 
         if (wsRef.current) {
           wsRef.current.close();
