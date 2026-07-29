@@ -324,7 +324,7 @@ export default function Home() {
     [refresh, setActiveSessionId, refreshHistory],
   );
 
-  const handleSessionExited = useCallback(async (id: string) => {
+  const handleSessionExited = useCallback(async (id: string, lastWords?: string) => {
     setAliveSessions((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -332,8 +332,12 @@ export default function Home() {
     });
     // Remove dead session from IDB so it doesn't linger in sidebar
     await remove(id);
-    // If the exited session was the active one, reset to welcome screen
-    if (activeSessionId === id) {
+    // A CLI that died seconds after spawning printed the reason it refused to
+    // start, and the terminal is the only place that reason exists. Closing the
+    // view here is what turned "this session is held by a background agent"
+    // into an unexplained bounce back to the home screen. Stay put and let it
+    // be read; the back button is right there. Normal exits still return home.
+    if (activeSessionId === id && !lastWords) {
       setActiveSessionId(null);
     }
   }, [activeSessionId, remove, setActiveSessionId]);

@@ -2,7 +2,7 @@ import * as pty from 'node-pty';
 import * as path from 'path';
 import { WebSocket } from 'ws';
 import { execFileSync, spawnSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import {
   buildBackendCommand,
   normalizeBackend,
@@ -565,11 +565,62 @@ function shellQuote(value: string): string {
 }
 
 export type ProcessGrep = (pattern: string) => string;
+export type RosterReader = () => string | null;
 
 const defaultProcessGrep: ProcessGrep = (pattern) => {
   const result = spawnSync('pgrep', ['-f', pattern], { timeout: 2000 });
   return result.status === 0 ? result.stdout.toString() : '';
 };
+
+export function claudeDaemonRosterPath(): string {
+  return path.join(process.env.HOME || '', '.claude', 'daemon', 'roster.json');
+}
+
+const defaultRosterReader: RosterReader = () => {
+  try {
+    return readFileSync(claudeDaemonRosterPath(), 'utf8');
+  } catch {
+    return null;
+  }
+};
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means it exists but belongs to someone else — still a holder.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * The daemon's roster of live background agents. Since CLI 2.1.220 a bg agent
+ * is hosted by the daemon rather than run as its own `claude --resume <id>`
+ * process, so its session id never appears in any command line and the pgrep
+ * path below cannot see it — which is exactly the case that bites, because
+ * every session started from the TG bridge is held this way.
+ *
+ * Shape: `{ workers: { "<id-prefix>": { pid, sessionId, cwd, … } } }`. A stale
+ * entry (daemon died without cleaning up) would wrongly divert a resume that
+ * would have worked, so the pid is checked for life before believing it.
+ */
+function findRosterHolder(resumeId: string, readRoster: RosterReader): string | null {
+  const raw = readRoster();
+  if (!raw) return null;
+  const parsed = JSON.parse(raw) as {
+    workers?: Record<string, { pid?: number; sessionId?: string } | null>;
+  };
+  const workers = parsed?.workers;
+  if (!workers || typeof workers !== 'object') return null;
+
+  for (const worker of Object.values(workers)) {
+    if (!worker || worker.sessionId !== resumeId) continue;
+    const pid = worker.pid;
+    if (typeof pid === 'number' && pid > 0 && pidAlive(pid)) return String(pid);
+  }
+  return null;
+}
 
 /**
  * A session already loaded by another live process (a daemon-managed
@@ -578,15 +629,25 @@ const defaultProcessGrep: ProcessGrep = (pattern) => {
  * as a background agent" and exit within a second — which the user only
  * sees as a terminal that dies instantly. Detect the holder up front.
  *
- * Matches both invocation shapes: `--resume <sessionId>` (interactive CLI)
- * and `--resume /path/to/<sessionId>.jsonl` (daemon bg agents).
- * Fails open: if pgrep is missing or errors, resume proceeds and the CLI
- * reports the conflict itself.
+ * Two sources, because neither alone covers both cases:
+ *   - the daemon roster, for bg agents it hosts (no session id in any argv)
+ *   - pgrep, for a plain `claude --resume <id>` in another terminal. Matches
+ *     both `--resume <sessionId>` and `--resume /path/to/<sessionId>.jsonl`.
+ *
+ * Fails open on either source: if the roster is missing/corrupt or pgrep
+ * errors, the resume proceeds and the CLI reports the conflict itself.
  */
 export function findResumeHolder(
   resumeId: string,
   processGrep: ProcessGrep = defaultProcessGrep,
+  readRoster: RosterReader = defaultRosterReader,
 ): string | null {
+  try {
+    const rosterPid = findRosterHolder(resumeId, readRoster);
+    if (rosterPid) return rosterPid;
+  } catch {
+    // Roster unreadable or malformed — fall through to pgrep.
+  }
   try {
     // Pattern must not start with "-" or pgrep parses it as a flag.
     const pid = processGrep(`resume[ =].*${resumeId}`).trim().split('\n')[0];

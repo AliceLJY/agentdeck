@@ -4,12 +4,22 @@ import { findResumeHolder, stripTerminalNoise, titleFromInput } from './terminal
 
 const SESSION_ID = 'df81b097-7529-43bb-bf43-6173c84b1dd2';
 
+// Every case passes an explicit roster reader: the default one reads the real
+// ~/.claude/daemon/roster.json, which would make these depend on whatever the
+// machine running the tests happens to have open.
+const NO_ROSTER = () => null;
+const DEAD_PID = 999_999;   // above macOS's default pid ceiling
+
+function rosterWith(entry: Record<string, unknown>): () => string {
+  return () => JSON.stringify({ proto: 1, supervisorPid: 1, workers: { abc12345: entry } });
+}
+
 test('findResumeHolder returns the first pid when a live process holds the session', () => {
   const seen: string[] = [];
   const holder = findResumeHolder(SESSION_ID, (pattern) => {
     seen.push(pattern);
     return '22161\n33000\n';
-  });
+  }, NO_ROSTER);
 
   assert.equal(holder, '22161');
   // Both invocation shapes must match: `--resume <id>` (interactive CLI)
@@ -22,15 +32,55 @@ test('findResumeHolder returns the first pid when a live process holds the sessi
 });
 
 test('findResumeHolder returns null when no process matches', () => {
-  assert.equal(findResumeHolder(SESSION_ID, () => ''), null);
-  assert.equal(findResumeHolder(SESSION_ID, () => '\n'), null);
+  assert.equal(findResumeHolder(SESSION_ID, () => '', NO_ROSTER), null);
+  assert.equal(findResumeHolder(SESSION_ID, () => '\n', NO_ROSTER), null);
 });
 
 test('findResumeHolder fails open when process lookup errors', () => {
   const holder = findResumeHolder(SESSION_ID, () => {
     throw new Error('pgrep missing');
-  });
+  }, NO_ROSTER);
   assert.equal(holder, null);
+});
+
+// Since CLI 2.1.220 a bg agent is hosted by the daemon, so its session id is in
+// no command line at all and pgrep alone always reported "nobody holds this" —
+// the resume then died on the CLI's refusal. The roster is the source that sees
+// these, and every session started from the TG bridge is one of them.
+test('findResumeHolder finds a daemon-hosted bg agent through the roster', () => {
+  const holder = findResumeHolder(
+    SESSION_ID,
+    () => { throw new Error('pgrep must not be consulted once the roster answers'); },
+    rosterWith({ pid: process.pid, sessionId: SESSION_ID, cwd: '/Users/a' }),
+  );
+  assert.equal(holder, String(process.pid));
+});
+
+test('findResumeHolder ignores a roster entry whose process is gone', () => {
+  // A daemon that died without cleaning up would otherwise divert a resume
+  // that should have been allowed to proceed.
+  const holder = findResumeHolder(
+    SESSION_ID,
+    () => '',
+    rosterWith({ pid: DEAD_PID, sessionId: SESSION_ID, cwd: '/Users/a' }),
+  );
+  assert.equal(holder, null);
+});
+
+test('findResumeHolder ignores roster entries for other sessions', () => {
+  const holder = findResumeHolder(
+    SESSION_ID,
+    () => '',
+    rosterWith({ pid: process.pid, sessionId: 'ffffffff-0000-0000-0000-000000000000' }),
+  );
+  assert.equal(holder, null);
+});
+
+test('findResumeHolder falls back to pgrep when the roster is unreadable', () => {
+  assert.equal(findResumeHolder(SESSION_ID, () => '22161\n', () => 'not json at all'), '22161');
+  assert.equal(findResumeHolder(SESSION_ID, () => '22161\n', () => null), '22161');
+  // A roster with no workers map at all must not throw either.
+  assert.equal(findResumeHolder(SESSION_ID, () => '22161\n', () => '{"proto":1}'), '22161');
 });
 
 test('stripTerminalNoise recovers the readable refusal a dying CLI printed', () => {
