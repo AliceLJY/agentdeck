@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import CopyButton from '@/components/CopyButton';
 import FileUpload from '@/components/FileUpload';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
 import type {
@@ -328,12 +329,37 @@ function MessageRow({ message }: { message: ChatMessage }) {
       {message.tools.length > 0 && <ToolStrip tools={message.tools} />}
       {hasText && (
         <div className="chat-md max-w-none text-[15px] leading-relaxed text-gray-900 dark:text-gray-100">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ pre: CodeBlock }}>
+            {message.text}
+          </ReactMarkdown>
+          {/* Copying out of the terminal on a phone is painful, so every
+              answer carries its own one-tap copy of the raw markdown. */}
+          <div className="mt-1 flex justify-end">
+            <CopyButton getText={() => message.text} label="Copy reply" />
+          </div>
         </div>
       )}
     </div>
   );
 }
+
+/** A fenced code block with its own copy button pinned to the corner. */
+function CodeBlock({ children, ...props }: React.ComponentPropsWithoutRef<'pre'>) {
+  const ref = useRef<HTMLPreElement>(null);
+  return (
+    <div className="relative">
+      <pre ref={ref} {...props}>
+        {children}
+      </pre>
+      <CopyButton
+        getText={() => ref.current?.innerText ?? ''}
+        iconOnly
+        className="absolute right-1.5 top-1.5"
+      />
+    </div>
+  );
+}
+
 
 function ToolStrip({ tools }: { tools: ChatMessage['tools'] }) {
   const [open, setOpen] = useState(false);

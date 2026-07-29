@@ -289,16 +289,19 @@ textarea { -webkit-appearance: none; }
 .chat-md pre {
     margin: 0.6em 0;
     padding: 0.7em 0.9em;
+    /* Room for the copy button in the corner */
+    padding-right: 2.6em;
     border-radius: 8px;
     background: rgba(127, 127, 127, 0.1);
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
 }
 .chat-md pre code {
     background: none;
     padding: 0;
-    word-break: normal;
-    white-space: pre;
+    /* Wrap to the bubble width instead of scrolling sideways: dragging a
+       horizontal scrollbar inside a chat bubble on a phone is miserable, and
+       it hides the tail of every command. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
 }
 .chat-md blockquote {
     margin: 0.6em 0;
