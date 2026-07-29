@@ -86,6 +86,23 @@ export function handleWebSocket(
           terminalManager.attach(msg.sessionId, ws, msg.streamOutput !== false);
           currentSessionId = msg.sessionId;
 
+          // Adopt the attaching client's geometry. The tmux window otherwise
+          // keeps whatever size it was created with, which is how a session
+          // started on a desktop ends up rendering at desktop width on a
+          // phone — the CLI wraps and repositions against a grid the viewer
+          // cannot see. Best-effort: a failure here must not fail the attach.
+          if (typeof msg.cols === 'number' && typeof msg.rows === 'number'
+            && msg.cols > 0 && msg.rows > 0) {
+            try {
+              terminalManager.resize(msg.sessionId, msg.cols, msg.rows, ws);
+            } catch (err) {
+              console.warn(
+                `[agentdeck] resize on attach failed for ${msg.sessionId}:`,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+
           console.log(`[agentdeck] WS: attached to session ${msg.sessionId}`);
           break;
         }

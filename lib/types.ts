@@ -4,7 +4,11 @@ import type { HistoryBackend } from './backends';
 // Client -> Server (JSON)
 export type ClientMessage =
   | ({ type: 'create'; cols?: number; rows?: number } & TerminalCreateOptions)
-  | { type: 'attach'; sessionId: string; streamOutput?: boolean }
+  // cols/rows carry the *attaching* client's geometry. A tmux window keeps the
+  // size it was created with, so without these a session opened on a desktop
+  // and reattached from a phone keeps rendering at the desktop's width — the
+  // CLI draws past the right edge and every redraw lands in the wrong column.
+  | { type: 'attach'; sessionId: string; streamOutput?: boolean; cols?: number; rows?: number }
   | { type: 'input'; data: string }
   | { type: 'resize'; cols: number; rows: number }
   | { type: 'kill'; sessionId: string }
