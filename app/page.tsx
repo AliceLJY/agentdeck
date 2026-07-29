@@ -114,11 +114,11 @@ export default function Home() {
     setAliveSessions(alive);
 
     // Remove stale sessions from IDB that server doesn't know about
-    let hadStale = false;
+    let activeWentStale = false;
     sessions.forEach((s) => {
       if (!serverIds.has(s.id)) {
         remove(s.id);
-        hadStale = true;
+        if (s.id === activeSessionId) activeWentStale = true;
       }
     });
 
@@ -135,8 +135,17 @@ export default function Home() {
       }))).then(() => refresh());
     }
 
-    // If all sessions were stale and active session is dead, reset to welcome
-    if (hadStale && activeSessionId && !serverIds.has(activeSessionId)) {
+    // Bounce to welcome only when the session being viewed is itself gone.
+    // The old condition armed on *any* stale entry — one session killed
+    // earlier in the evening left it permanently true, so a 'list' arriving
+    // while the active id was not yet echoed back by the server (a freshly
+    // created session, or a reconcile racing the create reply) ejected the
+    // user mid-session. That is the "terminal bounces back to the home
+    // screen" symptom: the view unmounts, its socket closes, it reconnects,
+    // and the next list ejects it again — a loop that only starts once the
+    // device has accumulated a dead session, which is why a clean list
+    // behaves and a long session of open/close does not.
+    if (activeWentStale) {
       setActiveSessionId(null);
     }
   };
