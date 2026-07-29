@@ -117,6 +117,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       let resizeObserver: ResizeObserver | null = null;
       let detachTouchScroll: (() => void) | null = null;
       let detachViewportWatch: (() => void) | null = null;
+      // A refit resizes the character grid, and xterm snaps the viewport back
+      // to the bottom whenever it resizes. On a phone the viewport height
+      // changes *while scrolling* (the browser chrome collapses), so a naive
+      // refit fires mid-gesture and yanks the user back to the newest output —
+      // indistinguishable from "scrolling is broken". Hold refits for the
+      // duration of a drag and its momentum, then apply once at the end.
+      let scrollActive = false;
+      let refitPending = false;
+      let refitDebounce: ReturnType<typeof setTimeout> | null = null;
+      // Assigned inside init(). Hoisted to this scope so connectWebSocket can
+      // reach it too — the post-attach re-measure used to call fit() directly,
+      // which is exactly what threw away the scroll position on every attach.
+      let refit: () => void = () => {};
 
       const init = async () => {
         // Dynamic import to avoid SSR issues
@@ -241,9 +254,21 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             }
           };
 
+          // Any refit queued by the browser chrome collapsing mid-gesture is
+          // deferred to here, so the grid only changes size once the user has
+          // stopped moving and the viewport has settled.
+          const endScroll = () => {
+            scrollActive = false;
+            if (refitPending) {
+              refitPending = false;
+              refit();
+            }
+          };
+
           const onTouchStart = (e: TouchEvent) => {
             if (e.touches.length !== 1) return;
             stopMomentum();
+            scrollActive = true;
             lastY = e.touches[0].clientY;
             carry = 0;
             velocity = 0;
@@ -276,15 +301,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           };
 
           const onTouchEnd = () => {
-            if (!dragging) return;
+            if (!dragging) { endScroll(); return; }
             dragging = false;
             // Ignore a stale flick: lifting after a pause should just stop.
-            if (performance.now() - lastMoveAt > 100 || Math.abs(velocity) < 0.4) return;
+            if (performance.now() - lastMoveAt > 100 || Math.abs(velocity) < 0.4) {
+              endScroll();
+              return;
+            }
 
             const step = () => {
               velocity *= 0.94;
               if (Math.abs(velocity) < 0.08) {
                 momentum = null;
+                endScroll();
                 return;
               }
               carry += velocity;
@@ -315,9 +344,36 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         connectWebSocket(term, fitAddon);
 
         // ─── Keeping the grid the size of the screen ───
-        const refit = () => {
+        refit = () => {
           if (disposed || !fitAddon || !term.element) return;
+          // Never change the grid under a moving finger — queue it instead.
+          if (scrollActive) {
+            refitPending = true;
+            return;
+          }
+
+          const dims = fitAddon.proposeDimensions();
+          if (!dims || !dims.cols || !dims.rows) return;
+          // Same geometry ⇒ do nothing. This is the common case on a phone:
+          // the browser chrome collapsing by a few pixels usually lands on the
+          // same row count, and skipping the resize is what keeps the viewport
+          // (and therefore the user's scroll position) where it was.
+          if (dims.cols === term.cols && dims.rows === term.rows) return;
+
+          // A real resize does snap the viewport to the bottom, so restore the
+          // reading position afterwards — unless the user was already at the
+          // bottom, where following new output is the wanted behaviour.
+          const before = term.buffer.active;
+          const wasAtBottom = before.viewportY >= before.baseY;
+          const savedViewportY = before.viewportY;
+
           fitAddon.fit();
+
+          if (!wasAtBottom) {
+            const after = term.buffer.active;
+            term.scrollToLine(Math.max(0, Math.min(savedViewportY, after.baseY)));
+          }
+
           const ws = wsRef.current;
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(
@@ -343,7 +399,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           settleTimer = setTimeout(refit, 250);
         };
 
-        resizeObserver = new ResizeObserver(refit);
+        // ResizeObserver fires once per frame while the viewport animates, so
+        // measuring on every callback means dozens of resizes during a single
+        // chrome collapse. Debounce to the end of the movement.
+        const refitDebounced = () => {
+          if (refitDebounce) clearTimeout(refitDebounce);
+          refitDebounce = setTimeout(refit, 120);
+        };
+        resizeObserver = new ResizeObserver(refitDebounced);
         resizeObserver.observe(containerRef.current);
 
         window.addEventListener('resize', refitAfterSettle);
@@ -410,15 +473,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           // The first measurement can land while the view is still animating
           // in, so the geometry sent above may be a mid-transition one. Measure
           // again once it has settled and correct the server if it moved.
+          //
+          // Route this through refit() rather than calling fit() directly. On a
+          // re-attach the geometry is usually unchanged, and refit skips the
+          // resize entirely in that case; when it did change, refit restores
+          // the reading position afterwards. The direct fit() that used to live
+          // here is why every attach snapped the viewport to the bottom: the
+          // grid measured correctly and threw away where the user was reading,
+          // which reads as "the terminal will not scroll".
           setTimeout(() => {
             if (disposed) return;
-            const fit = fitAddonRef.current;
-            const t = termRef.current;
-            if (!fit || !t || !t.element) return;
-            fit.fit();
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'resize', cols: t.cols, rows: t.rows }));
-            }
+            refit();
           }, 300);
         };
 
@@ -511,6 +576,10 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         if (resizeObserver) {
           resizeObserver.disconnect();
+        }
+
+        if (refitDebounce) {
+          clearTimeout(refitDebounce);
         }
 
         detachTouchScroll?.();
