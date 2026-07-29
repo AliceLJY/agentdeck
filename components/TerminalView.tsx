@@ -130,6 +130,19 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       // reach it too — the post-attach re-measure used to call fit() directly,
       // which is exactly what threw away the scroll position on every attach.
       let refit: () => void = () => {};
+      // What xterm itself last put on the wire, and when. xterm registers its
+      // own textarea 'input' listener inside open(), also in the capture
+      // phase, so it always runs *before* the IME patch below — by the time
+      // the patch sees an event, anything xterm decided to send is already
+      // gone. Recording it here is what lets the patch tell "xterm dropped
+      // this keystroke" (send it) from "xterm already sent it" (stay quiet).
+      // The sequence number exists so one emission can only be matched once:
+      // typing the same character twice in a row must not let the first
+      // emission excuse the second.
+      let lastXtermData = '';
+      let lastXtermSeq = 0;
+      let lastXtermAt = 0;
+      let matchedXtermSeq = 0;
 
       const init = async () => {
         // Dynamic import to avoid SSR issues
@@ -187,9 +200,17 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         // xterm 6.0.0 on iOS 26 drops most 'input' events (its value-diff logic is
         // unreliable in this environment — English 5-char bursts only send 1 char,
         // Chinese punctuation goes missing). Attach our own capture-phase listener
-        // on xterm's hidden textarea that sends e.data directly to the WebSocket,
-        // clears the textarea to prevent value accumulation, and stops the event
-        // from reaching xterm's own handler.
+        // on xterm's hidden textarea that sends e.data directly to the WebSocket
+        // and clears the textarea to prevent value accumulation.
+        //
+        // This listener can only ever *fill in gaps*, never lead. xterm's own
+        // 'input' listener is registered in open() and is capture-phase too, so
+        // it runs first, and a keystroke it handled normally is already on the
+        // wire. Sending unconditionally is what made every character arrive
+        // twice on any platform where xterm works fine — "把" as "把把",
+        // ~/Projects as ~/PProjects. This used to end in a
+        // stopImmediatePropagation() meant to keep xterm out of it, which never
+        // could: it stops *later* listeners, and xterm's had already run.
         const helperTa = containerRef.current?.querySelector<HTMLTextAreaElement>(
           '.xterm-helper-textarea',
         );
@@ -210,12 +231,30 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               // where the text sits in dataTransfer instead.
               const text = ie.data ?? ie.dataTransfer?.getData('text') ?? '';
               if (!text) return;
-              const ws = wsRef.current;
-              if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'input', data: isPaste ? bracketed(text) : text }));
+              // Did xterm already send this very keystroke, moments ago, in its
+              // own pass over this event? Then this listener has nothing to add.
+              // A paste is compared against its bracketed form as well, since
+              // that is what xterm emits with bracketed paste mode on.
+              //
+              // The window only has to span one event dispatch — keydown and
+              // its input event are microseconds apart — but it is generous
+              // because the two failure modes are not symmetric: too tight and
+              // a stalled main thread brings the doubling back, too loose and
+              // a keystroke is dropped only if an identical one was pasted
+              // moments earlier *and* xterm dropped this one.
+              const alreadySent =
+                lastXtermSeq > matchedXtermSeq
+                && performance.now() - lastXtermAt < 250
+                && (lastXtermData === text || lastXtermData === bracketed(text));
+              if (alreadySent) {
+                matchedXtermSeq = lastXtermSeq;
+              } else {
+                const ws = wsRef.current;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: 'input', data: isPaste ? bracketed(text) : text }));
+                }
               }
               helperTa.value = '';
-              ev.stopImmediatePropagation();
             },
             true,
           );
@@ -556,8 +595,15 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           // onclose will fire after this
         };
 
-        // Wire terminal input to WebSocket
+        // Wire terminal input to WebSocket. Every emission is also recorded for
+        // the IME patch in init() — that is how it knows whether xterm has
+        // already covered the keystroke it is looking at. Recorded even when the
+        // socket is closed: what matters there is that xterm handled the event,
+        // not that the bytes made it out.
         term.onData((data) => {
+          lastXtermData = data;
+          lastXtermSeq++;
+          lastXtermAt = performance.now();
           if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'input', data }));
           }
