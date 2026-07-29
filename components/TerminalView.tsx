@@ -394,32 +394,14 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }),
             );
           } else {
-            // Attach to existing server session, telling it how wide this
-            // client actually is — the session may have been created on a
-            // screen of an entirely different size.
+            // Attach to existing server session
             ws.send(
               JSON.stringify({
                 type: 'attach',
                 sessionId: sid,
-                cols: term.cols,
-                rows: term.rows,
               }),
             );
           }
-
-          // The first measurement can land while the view is still animating
-          // in, so the geometry sent above may be a mid-transition one. Measure
-          // again once it has settled and correct the server if it moved.
-          setTimeout(() => {
-            if (disposed) return;
-            const fit = fitAddonRef.current;
-            const t = termRef.current;
-            if (!fit || !t || !t.element) return;
-            fit.fit();
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'resize', cols: t.cols, rows: t.rows }));
-            }
-          }, 300);
         };
 
         ws.onmessage = (event) => {
