@@ -243,6 +243,12 @@ adopted automatically, so `npm start` on the Mac never locks you out. A remote
 caller is never adopted — an empty allowlist reached through the tunnel is a
 request to approve, not a reason to trust.
 
+"From loopback" means the transport peer, never a header. `X-Forwarded-For` is
+set by whoever is calling, so it is used for display only; the adoption check
+reads the socket, or the `x-agentdeck-peer` header the server stamps from the
+socket on every request, overwriting whatever the client sent. Sending
+`X-Forwarded-For: 127.0.0.1` from the tunnel gets a caller nothing.
+
 **A stolen token.** The thief's browser has no approved id, so it lands blocked
 and you get the alert. That is the alert worth acting on: rotate the token.
 

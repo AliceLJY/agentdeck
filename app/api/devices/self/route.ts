@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { authorizeAndNotify, clientIp } from '@/lib/device-service';
+import { authIp, authorizeAndNotify, displayIp } from '@/lib/device-service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +24,10 @@ export async function GET(req: NextRequest) {
   const decision = await authorizeAndNotify({
     deviceId,
     userAgent: req.headers.get('user-agent'),
-    ip: clientIp(headers),
+    // No socket here — authIp reads only the peer header the custom server
+    // stamps from the socket, so X-Forwarded-For cannot reach this decision.
+    peerIp: authIp(headers),
+    displayIp: displayIp(headers),
     now: Date.now(),
   });
 

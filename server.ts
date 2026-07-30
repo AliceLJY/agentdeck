@@ -9,7 +9,7 @@ import { TerminalManager } from './lib/terminal-manager';
 import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
 import { isLoopbackHost, resolveServerHost } from './lib/server-config';
-import { authorizeAndNotify, clientIp } from './lib/device-service';
+import { authorizeAndNotify, displayIp, PEER_HEADER } from './lib/device-service';
 
 const terminalManager = new TerminalManager();
 
@@ -71,6 +71,11 @@ app.prepare().then(async () => {
   }
   const handleUpgrade = app.getUpgradeHandler();
   const server = createServer((req, res) => {
+    // Stamp the real transport peer for the route handlers, which cannot reach
+    // the socket. Assignment, never append: a client that sends this header
+    // itself must not be able to influence the value — that would hand back the
+    // X-Forwarded-For spoofing hole this header exists to close.
+    req.headers[PEER_HEADER] = req.socket.remoteAddress || '';
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl);
   });
@@ -108,7 +113,9 @@ app.prepare().then(async () => {
       authorizeAndNotify({
         deviceId,
         userAgent: req.headers['user-agent'] ?? null,
-        ip: clientIp(req.headers, req.socket.remoteAddress),
+        // The socket is right here, so the bootstrap decision uses it directly.
+        peerIp: req.socket.remoteAddress || 'unknown',
+        displayIp: displayIp(req.headers, req.socket.remoteAddress),
         now: Date.now(),
       })
         .then((decision) => {
