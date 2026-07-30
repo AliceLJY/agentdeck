@@ -17,9 +17,16 @@ export async function GET(req: NextRequest) {
   const device = deviceStore.findByNonce(nonce);
 
   if (!device) {
+    // Distinguish the two dead-link cases: a lapsed link means "open the page
+    // on that device again and a new alert will arrive", whereas anything else
+    // means the link was already spent or the device has since been revoked.
+    // Same 410 either way — only the wording the owner reads differs.
+    const lapsed = deviceStore.hasLapsedNonce(nonce);
     return htmlResponse(
-      'Link expired',
-      'This approval link has already been used or is no longer valid. If a device still needs access, open it again to trigger a fresh request.',
+      lapsed ? 'Link expired' : 'Link no longer valid',
+      lapsed
+        ? 'Approval links last 15 minutes. Open AgentDeck on that device again and a fresh alert will arrive within a few seconds.'
+        : 'This link has already been used, or the device has since been revoked. Nothing was changed.',
       410,
     );
   }

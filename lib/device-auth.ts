@@ -66,8 +66,24 @@ export function deviceLabel(
   return displayMode === 'standalone' ? `${base} · Home Screen` : base;
 }
 
+/**
+ * How long an approval link stays usable.
+ *
+ * It doubles as the alert throttle window, and that is deliberate: a blocked
+ * device retrying every few seconds must not fire an alert per retry, but once
+ * its link has lapsed the owner needs a fresh one or that device could never be
+ * approved from the phone again. Tying the two together means exactly one live
+ * link exists per device at any time, and re-alerting is what refreshes it.
+ */
+export const NONCE_TTL_MS = 15 * 60 * 1000;
+
 export function mintApprovalNonce(): string {
   return randomBytes(24).toString('hex');
+}
+
+/** True when a pending record's link has lapsed (or predates expiry tracking). */
+export function nonceIsLive(device: DeviceRecord, now: number): boolean {
+  return typeof device.nonceExpiresAt === 'number' && device.nonceExpiresAt > now;
 }
 
 /**
@@ -129,6 +145,20 @@ export function authorizeDevice(
       return { outcome: 'revoked', device: existing, isFirstSighting: false };
     }
     store.touch(id, ctx.now, ctx.displayIp);
+    // Its link lapsed while it kept knocking: mint a new one and let the owner
+    // be told again. Without this, an expired link would leave that device
+    // permanently unapprovable from the phone — and with it, the retry storm
+    // still only costs one alert per TTL window rather than one per attempt.
+    if (!nonceIsLive(existing, ctx.now)) {
+      const refreshed = store.upsert({
+        ...existing,
+        lastSeen: ctx.now,
+        lastIp: ctx.displayIp,
+        approvalNonce: mintApprovalNonce(),
+        nonceExpiresAt: ctx.now + NONCE_TTL_MS,
+      });
+      return { outcome: 'pending', device: refreshed, isFirstSighting: true };
+    }
     return { outcome: 'pending', device: existing, isFirstSighting: false };
   }
 
@@ -141,6 +171,7 @@ export function authorizeDevice(
     userAgent: ctx.userAgent || '',
     lastIp: ctx.displayIp,
     approvalNonce: mintApprovalNonce(),
+    nonceExpiresAt: ctx.now + NONCE_TTL_MS,
   };
   store.upsert(record);
 

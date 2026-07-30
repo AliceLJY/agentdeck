@@ -10,6 +10,9 @@ function tempPath(): string {
   return path.join(dir, 'devices.json');
 }
 
+/** Fixed clock so nonce-expiry assertions never depend on wall time. */
+const NOW = 1_700_000_000_000;
+
 const record = (over: Partial<DeviceRecord> = {}): DeviceRecord => ({
   id: 'dev-1',
   name: 'iPhone',
@@ -19,6 +22,7 @@ const record = (over: Partial<DeviceRecord> = {}): DeviceRecord => ({
   userAgent: 'ua',
   lastIp: '198.51.100.9',
   approvalNonce: 'nonce-abc',
+  nonceExpiresAt: NOW + 600_000,
   ...over,
 });
 
@@ -72,15 +76,15 @@ test('an approval nonce is single use', () => {
   const store = new DeviceStore(file);
   store.upsert(record());
 
-  assert.equal(store.findByNonce('nonce-abc')?.id, 'dev-1');
+  assert.equal(store.findByNonce('nonce-abc', NOW)?.id, 'dev-1');
   store.setStatus('dev-1', 'approved');
-  assert.equal(store.findByNonce('nonce-abc'), undefined, 'a spent nonce must not work twice');
+  assert.equal(store.findByNonce('nonce-abc', NOW), undefined, 'a spent nonce must not work twice');
 });
 
 test('an empty nonce never matches', () => {
   const store = new DeviceStore(tempPath());
   store.upsert(record({ approvalNonce: undefined }));
-  assert.equal(store.findByNonce(''), undefined);
+  assert.equal(store.findByNonce('', NOW), undefined);
 });
 
 test('revoking clears the approval link', () => {

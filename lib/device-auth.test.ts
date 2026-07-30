@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DeviceStore } from './device-store';
-import { authorizeDevice, deviceLabel, labelFromUserAgent } from './device-auth';
+import { authorizeDevice, deviceLabel, labelFromUserAgent, NONCE_TTL_MS } from './device-auth';
 
 function freshStore(): DeviceStore {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdeck-devices-'));
@@ -141,4 +141,82 @@ test('the entry point is part of the stored name', () => {
   const store = freshStore();
   const decision = authorizeDevice(store, ctx('pwa-1', { displayMode: 'standalone' }));
   assert.equal(decision.device.name, 'iPhone · Home Screen');
+});
+
+test('an approval link stops working after its TTL', () => {
+  // Alice's scenario: a stranger's device gets blocked, she glances at the alert,
+  // knows it is not her, and just ignores it (does not revoke). Weeks later she
+  // scrolls the chat and mis-taps that old link. Before the TTL that tap would
+  // have approved the intruder.
+  const store = freshStore();
+  const t0 = 1_700_000_000_000;
+  const decision = authorizeDevice(store, { ...ctx('intruder'), now: t0 });
+  const nonce = decision.device.approvalNonce!;
+
+  assert.ok(store.findByNonce(nonce, t0 + 60_000), 'usable a minute later');
+  assert.equal(
+    store.findByNonce(nonce, t0 + NONCE_TTL_MS + 1),
+    undefined,
+    'a stray tap after the window must approve nothing',
+  );
+});
+
+test('a lapsed link is distinguishable from one that never existed', () => {
+  const store = freshStore();
+  const t0 = 1_700_000_000_000;
+  const nonce = authorizeDevice(store, { ...ctx('intruder'), now: t0 }).device.approvalNonce!;
+
+  assert.equal(store.hasLapsedNonce(nonce, t0 + 60_000), false, 'still live, not lapsed');
+  assert.equal(store.hasLapsedNonce(nonce, t0 + NONCE_TTL_MS + 1), true);
+  assert.equal(store.hasLapsedNonce('never-minted', t0 + NONCE_TTL_MS + 1), false);
+});
+
+test('a device that keeps knocking past the TTL gets a fresh link and a fresh alert', () => {
+  // Otherwise expiry would make that device permanently unapprovable from the phone.
+  const store = freshStore();
+  const t0 = 1_700_000_000_000;
+  const first = authorizeDevice(store, { ...ctx('intruder'), now: t0 });
+
+  const within = authorizeDevice(store, { ...ctx('intruder'), now: t0 + 60_000 });
+  assert.equal(within.isFirstSighting, false, 'inside the window: still no re-alert');
+  assert.equal(within.device.approvalNonce, first.device.approvalNonce, 'same link');
+
+  const after = authorizeDevice(store, { ...ctx('intruder'), now: t0 + NONCE_TTL_MS + 1 });
+  assert.equal(after.isFirstSighting, true, 'past the window: alert again');
+  assert.notEqual(after.device.approvalNonce, first.device.approvalNonce, 'and a new link');
+  assert.equal(store.findByNonce(first.device.approvalNonce!, t0 + NONCE_TTL_MS + 2), undefined,
+    'the superseded link must be dead');
+});
+
+test('the retry storm still costs one alert per window, not per attempt', () => {
+  const store = freshStore();
+  const t0 = 1_700_000_000_000;
+  let alerts = 0;
+  // 60 attempts across 10 minutes — all inside one TTL window.
+  for (let i = 0; i < 60; i++) {
+    const d = authorizeDevice(store, { ...ctx('intruder'), now: t0 + i * 10_000 });
+    if (d.isFirstSighting) alerts++;
+  }
+  assert.equal(alerts, 1, 'flood protection must survive the expiry change');
+});
+
+test('a record predating expiry tracking is treated as expired, not as eternal', () => {
+  // Fail closed: old JSON has no nonceExpiresAt, and the safe reading of a
+  // missing expiry is "dead link", never "never expires".
+  const store = freshStore();
+  store.upsert({
+    id: 'legacy', name: 'iPhone', status: 'pending',
+    firstSeen: 1, lastSeen: 1, userAgent: 'ua', lastIp: '1.2.3.4',
+    approvalNonce: 'legacy-nonce',
+  });
+  assert.equal(store.findByNonce('legacy-nonce', Date.now()), undefined);
+});
+
+test('approving clears both the nonce and its expiry', () => {
+  const store = freshStore();
+  const t0 = 1_700_000_000_000;
+  authorizeDevice(store, { ...ctx('phone-1'), now: t0 });
+  const approved = store.setStatus('phone-1', 'approved');
+  assert.equal(approved?.approvalNonce, undefined);
+  assert.equal(approved?.nonceExpiresAt, undefined);
 });

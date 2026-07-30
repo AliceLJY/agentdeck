@@ -19,6 +19,12 @@ export interface DeviceRecord {
   /** One-time secret embedded in the approval link. Cleared the moment it is
    *  spent, so a leaked notification cannot approve a second device later. */
   approvalNonce?: string;
+  /** When that link stops working. Without an expiry the link stayed valid
+   *  forever, so months later a mis-tap on an old alert in the chat history
+   *  would approve a device the owner had merely ignored at the time —
+   *  "do not tap that link" was left to the owner's memory rather than to the
+   *  mechanism. A record missing this field is treated as expired (fail closed). */
+  nonceExpiresAt?: number;
 }
 
 /**
@@ -143,6 +149,7 @@ export class DeviceStore {
     existing.status = status;
     // A spent or revoked record must not keep a usable approval link around.
     delete existing.approvalNonce;
+    delete existing.nonceExpiresAt;
     this.persist();
     return existing;
   }
@@ -162,12 +169,34 @@ export class DeviceStore {
     this.persist();
   }
 
-  /** Look up the device holding this pending approval nonce. */
-  findByNonce(nonce: string): DeviceRecord | undefined {
+  /**
+   * Look up the device holding this pending approval nonce, if the link is
+   * still live. Three conditions, and all three matter: the device must still
+   * be pending (revoking kills old links), the nonce must match, and the link
+   * must not have expired.
+   */
+  findByNonce(nonce: string, now: number = Date.now()): DeviceRecord | undefined {
     if (!nonce) return undefined;
     this.load();
     return Object.values(this.data).find(
-      (d) => d.status === 'pending' && d.approvalNonce === nonce,
+      (d) =>
+        d.status === 'pending' &&
+        d.approvalNonce === nonce &&
+        typeof d.nonceExpiresAt === 'number' &&
+        d.nonceExpiresAt > now,
+    );
+  }
+
+  /** True when this pending device once had a link that has since lapsed —
+   *  lets the approve endpoint say "expired" instead of "never existed". */
+  hasLapsedNonce(nonce: string, now: number = Date.now()): boolean {
+    if (!nonce) return false;
+    this.load();
+    return Object.values(this.data).some(
+      (d) =>
+        d.approvalNonce === nonce &&
+        typeof d.nonceExpiresAt === 'number' &&
+        d.nonceExpiresAt <= now,
     );
   }
 }
