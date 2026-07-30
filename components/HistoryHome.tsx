@@ -189,8 +189,9 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
         <div className="mt-3 flex rounded-lg border border-gray-200 bg-gray-50 p-1 text-sm dark:border-gray-800 dark:bg-gray-900">
           <BackendFilterButton label="All" active={backendFilter === 'all'} onClick={() => changeBackendFilter('all')} />
           <BackendFilterButton label="CC" active={backendFilter === 'claude'} onClick={() => changeBackendFilter('claude')} />
-          <BackendFilterButton label="Codex" active={backendFilter === 'codex'} onClick={() => changeBackendFilter('codex')} />
           <BackendFilterButton label="Kimi" active={backendFilter === 'kimi'} onClick={() => changeBackendFilter('kimi')} />
+          <BackendFilterButton label="Agy" active={backendFilter === 'agy'} onClick={() => changeBackendFilter('agy')} />
+          <BackendFilterButton label="Codex" active={backendFilter === 'codex'} onClick={() => changeBackendFilter('codex')} />
         </div>
       </div>
 

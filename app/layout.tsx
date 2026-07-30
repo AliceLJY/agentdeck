@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'AgentDeck',
-  description: 'Web terminal for Claude Code, Codex and Kimi Code CLIs',
+  description: 'Web terminal for Claude Code, Kimi Code, Agy and Codex CLIs',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
