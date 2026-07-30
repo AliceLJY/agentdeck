@@ -11,10 +11,10 @@ any CLI you point it at.
 What a *backend entry* adds on top is **understanding**: the chat view, the
 history browser and one-click resume have to know where that CLI keeps its
 transcript and how to read it. [Claude Code](https://docs.anthropic.com/en/docs/claude-code),
-[Codex](https://github.com/openai/codex) and [Kimi Code](https://moonshotai.github.io/kimi-code/)
-ship with that built in — those three are simply the ones I run daily and have
-tested end to end. Teaching it a fourth is a day of adapter work, not a new
-transport; see [Adding a CLI](#adding-a-cli).
+[Kimi Code](https://moonshotai.github.io/kimi-code/), [Antigravity](https://antigravity.google)
+(`agy`) and [Codex](https://github.com/openai/codex) ship with that built in — those
+four are simply the ones I run daily and have tested end to end. Teaching it a fifth
+is a day of adapter work, not a new transport; see [Adding a CLI](#adding-a-cli).
 
 **A real terminal, not a chat wrapper.** xterm.js + node-pty + tmux run the upstream CLI interactively, exactly as it behaves in your local terminal. Layered on top is an optional **chat view** — the same live session rendered as clean, scrollable message bubbles, so reading long replies and typing on a phone feel native, without giving up the real terminal underneath.
 
@@ -22,13 +22,13 @@ transport; see [Adding a CLI](#adding-a-cli).
 
 ![AgentDeck](docs/screenshot.png)
 
-*Three CLIs side by side — Kimi, Claude Code and Codex tabs across the top — with
-past conversations in the sidebar. Session titles and project names in the
-screenshot are placeholders.*
+*The home screen on a phone — the backend filter across the top (All / CC / Kimi /
+Agy / Codex), with recent sessions and projects below. The two lists are left
+unloaded in this shot.*
 
 ## Features
 
-- **Mixed CLIs, one UI** — Spawn Claude Code, Codex or Kimi Code from the same browser and run them side by side; every session is tagged with its backend (blue for Claude, emerald for Codex, violet for Kimi). Any other CLI can take a tab too — it just won't have the chat and history layers until someone writes its adapter
+- **Mixed CLIs, one UI** — Spawn Claude Code, Kimi Code, Antigravity (`agy`) or Codex from the same browser and run them side by side; every session is tagged with its backend (blue for Claude, violet for Kimi, amber for Agy, emerald for Codex). Any other CLI can take a tab too — it just won't have the chat and history layers until someone writes its adapter
 - **History browser** — Cross-backend history view for up to the 25 most recently active sessions in the current backend / project filter. Search filters that loaded result set (there is no pagination yet); any listed session can be resumed in one click
 - **Real terminal** — xterm.js renders the full terminal experience: colors, cursor, scrollback, links
 - **Chat view** — Flip any live session into a structured chat: message bubbles, rendered Markdown, collapsible tool-call strips, auto-scroll that pauses when you scroll up. It reads the CLI's own transcript file, so it holds the complete, scrollable record — the terminal viewport can truncate a long reply, the chat view never does. One tap back to the real terminal for TUI prompts and pickers.
@@ -59,14 +59,16 @@ Browser (any device)          Server (your Mac)
 │  + backend tabs  │         │  ├─ WebSocket server  │
 │                  │         │  └─ TerminalManager   │
 │  IndexedDB       │         │     ├─ tmux:ccrt-#1   │──► claude (PTY)
-│  (session list)  │         │     ├─ tmux:ccrt-#2   │──► codex  (PTY)
-│                  │         │     ├─ tmux:ccrt-#3   │──► kimi   (PTY)
+│  (session list)  │         │     ├─ tmux:ccrt-#2   │──► kimi   (PTY)
+│                  │         │     ├─ tmux:ccrt-#3   │──► agy    (PTY)
+│                  │         │     ├─ tmux:ccrt-#4   │──► codex  (PTY)
 └──────────────────┘         │     └─ ...            │
                              │                       │
                              │  History scanner:     │
                              │  ~/.claude/projects/* │
-                             │  ~/.codex/sessions/*  │
                              │  ~/.kimi-code/sessions│
+                             │  ~/.gemini/antigravity│
+                             │  ~/.codex/sessions/*  │
                              └──────────────────────┘
 ```
 
@@ -108,7 +110,7 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Codex / Kimi filter selects which backend new terminals start with.
+Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Kimi / Agy / Codex filter selects which backend new terminals start with.
 
 ### Remote Access
 
@@ -303,8 +305,8 @@ Session limits (in `lib/types.ts`):
 
 ## Adding a CLI
 
-The three built-in backends are not a closed set — they are the ones that have
-been tested end to end. The work of adding a fourth splits cleanly in two, and
+The four built-in backends are not a closed set — they are the ones that have
+been tested end to end. The work of adding a fifth splits cleanly in two, and
 the expensive half is optional.
 
 **Free, no code.** Launching, the PTY, tmux persistence across restarts, tabs,
