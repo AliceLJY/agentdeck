@@ -79,6 +79,67 @@ describe('discoverTranscript (claude)', () => {
     );
   });
 
+  // Regression: the birthtime heuristic used to outrank the known resume id, so
+  // any transcript born near our spawn could steal the claim. The TG bridge
+  // self-check spawns several 9-line sessions at once, which is exactly what
+  // happened in the field: the Chat view showed a transcript holding one "pong"
+  // while the terminal talked to the real session.
+  it('resuming claims the named transcript even when a fresher one just appeared', async () => {
+    const cwd = '/Users/alice/proj';
+    const dir = path.join(work, projectIdFromCwd(cwd));
+
+    // The session being resumed: not yet written to this run, so its mtime is old
+    const resumed = path.join(dir, 'aaaa-bbbb.jsonl');
+    await touch(resumed, '{"real":"history"}\n');
+    await backdate(resumed, Date.now() - 3600_000);
+
+    const spawnTimeMs = Date.now() - 500;
+
+    // An unrelated transcript born right now (bridge self-check) — the decoy
+    const decoy = path.join(dir, 'bridge-selfcheck.jsonl');
+    await touch(decoy, '{"pong":1}\n');
+
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'claude', cwd, spawnTimeMs, resumeSessionId: 'aaaa-bbbb' },
+        { claudeRoot: work },
+      ),
+      resumed,
+      'known resume id must win over a fresher unrelated transcript',
+    );
+  });
+
+  it('resuming falls back to the heuristic when the named transcript is absent or owned', async () => {
+    const cwd = '/Users/alice/proj';
+    const dir = path.join(work, projectIdFromCwd(cwd));
+    const spawnTimeMs = Date.now() - 500;
+
+    // No aaaa-bbbb.jsonl on disk → a resumed CLI may open a brand-new transcript
+    const fresh = path.join(dir, 'brand-new.jsonl');
+    await touch(fresh, '{}\n');
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'claude', cwd, spawnTimeMs, resumeSessionId: 'aaaa-bbbb' },
+        { claudeRoot: work },
+      ),
+      fresh,
+      'absent resume target must not abort discovery',
+    );
+
+    // Present but already owned by another live session → skip it, keep looking
+    const resumed = path.join(dir, 'aaaa-bbbb.jsonl');
+    await touch(resumed, '{}\n');
+    await backdate(resumed, Date.now() - 3600_000);
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'claude', cwd, spawnTimeMs, resumeSessionId: 'aaaa-bbbb' },
+        { claudeRoot: work, excludePaths: new Set([resumed]) },
+      ),
+      fresh,
+      'owned resume target must not be double-claimed',
+    );
+  });
+
   it('never claims a transcript another session already owns', async () => {
     const cwd = '/Users/alice/proj';
     const dir = path.join(work, projectIdFromCwd(cwd));

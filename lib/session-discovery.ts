@@ -107,6 +107,26 @@ async function discoverClaude(
   const projectDir = path.join(root, projectIdFromCwd(target.cwd));
   if (!existsSync(projectDir)) return null;
 
+  // Resuming: we already know the id, so there is nothing to infer. `claude
+  // --resume` appends to the original file, and terminal-manager verified that
+  // file exists before spawning — so name it directly and skip the birthtime
+  // heuristic entirely.
+  //
+  // The heuristic used to run first here, and that was the bug: it picks the
+  // file whose birth time sits closest to our spawn, which any freshly created
+  // transcript can win. The TG bridge self-check (`streamQuery("自检 ping…")`)
+  // spawns several 9-line sessions at once — three were born inside the same
+  // second — so resuming anywhere near a bridge health check handed the Chat
+  // view a transcript containing one "pong" while the terminal talked to the
+  // real session. Display and execution silently pointed at different
+  // conversations; the user reads that as the session having forked.
+  if (target.resumeSessionId) {
+    const resumePath = path.join(projectDir, `${target.resumeSessionId}.jsonl`);
+    if (!exclude?.has(resumePath) && existsSync(resumePath)) return resumePath;
+    // Missing or already owned: fall through to the heuristic rather than
+    // giving up — a resumed CLI can still start a brand-new transcript.
+  }
+
   let entries;
   try {
     entries = await readdir(projectDir, { withFileTypes: true });
@@ -115,7 +135,6 @@ async function discoverClaude(
   }
 
   let best: { filePath: string; distance: number } | null = null;
-  let resumeFallback: string | null = null;
 
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
@@ -133,18 +152,9 @@ async function discoverClaude(
       const distance = Math.abs(born - target.spawnTimeMs);
       if (!best || distance < best.distance) best = { filePath, distance };
     }
-
-    // resume may append to the original file instead of creating a new one
-    if (
-      target.resumeSessionId
-      && entry.name === `${target.resumeSessionId}.jsonl`
-      && fileStat.mtimeMs >= target.spawnTimeMs - GRACE_MS
-    ) {
-      resumeFallback = filePath;
-    }
   }
 
-  return best?.filePath || resumeFallback;
+  return best?.filePath || null;
 }
 
 async function discoverCodex(
