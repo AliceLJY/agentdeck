@@ -1,4 +1,4 @@
-export type HistoryBackend = 'claude' | 'codex' | 'kimi';
+export type HistoryBackend = 'claude' | 'kimi' | 'agy' | 'codex';
 export type HistoryBackendFilter = HistoryBackend | 'all';
 
 export interface BackendDisplay {
@@ -33,6 +33,12 @@ const CODEX_REASONING_LEVELS = new Set(['minimal', 'low', 'medium', 'high', 'xhi
 // Verified against `kimi --help` (0.29.1): -y auto-approves tool calls but still
 // asks questions, --auto is fully autonomous, --plan starts in plan mode.
 const KIMI_PERMISSION_MODES = new Set(['default', 'yolo', 'auto', 'plan']);
+// Verified against `agy --help` (Antigravity CLI 1.1.8, 2026-07-30):
+// --effort takes low|medium|high (no xhigh, unlike claude), --mode takes
+// accept-edits|plan. There is no -C/--cwd flag — the tmux session is already
+// spawned in `cwd`, same situation as kimi.
+const AGY_EFFORT_LEVELS = new Set(['low', 'medium', 'high']);
+const AGY_MODES = new Set(['accept-edits', 'plan']);
 const MODEL_NAME_RE = /^[A-Za-z0-9._/-]{1,64}$/;
 
 function safeModel(value: string | undefined): string | null {
@@ -62,6 +68,15 @@ const BACKEND_DISPLAY: Record<HistoryBackend, BackendDisplay> = {
       'border-emerald-300 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30',
     terminalName: 'Codex',
   },
+  agy: {
+    label: 'Agy',
+    accentClass: 'border-amber-400 dark:border-amber-500',
+    badgeClass:
+      'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300',
+    selectedClass:
+      'border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30',
+    terminalName: 'Antigravity',
+  },
   kimi: {
     label: 'Kimi',
     accentClass: 'border-violet-400 dark:border-violet-500',
@@ -76,11 +91,12 @@ const BACKEND_DISPLAY: Record<HistoryBackend, BackendDisplay> = {
 export function normalizeBackend(value: unknown): HistoryBackend {
   if (value === 'codex') return 'codex';
   if (value === 'kimi') return 'kimi';
+  if (value === 'agy') return 'agy';
   return 'claude';
 }
 
 export function normalizeBackendFilter(value: unknown): HistoryBackendFilter {
-  if (value === 'all' || value === 'codex' || value === 'claude' || value === 'kimi') return value;
+  if (value === 'all' || value === 'codex' || value === 'claude' || value === 'kimi' || value === 'agy') return value;
   return 'all';
 }
 
@@ -101,6 +117,18 @@ export function buildBackendCommand(options: BackendCommandOptions): string[] {
     if (mode === 'yolo') args.push('-y');
     else if (mode === 'auto') args.push('--auto');
     else if (mode === 'plan') args.push('--plan');
+    return args;
+  }
+  if (options.backend === 'agy') {
+    // agy has no cwd flag either — the tmux session already runs in `cwd`.
+    const args = [options.executable];
+    if (resumeId) args.push('--conversation', resumeId);
+    const model = safeModel(options.model);
+    if (model) args.push('--model', model);
+    const effort = allowed(options.effort, AGY_EFFORT_LEVELS);
+    if (effort) args.push('--effort', effort);
+    const mode = allowed(options.permissionMode, AGY_MODES);
+    if (mode) args.push('--mode', mode);
     return args;
   }
   if (options.backend === 'codex') {

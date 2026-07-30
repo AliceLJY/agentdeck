@@ -98,8 +98,9 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
           <ChipRow
             choices={[
               { label: 'Claude', value: 'claude' },
-              { label: 'Codex', value: 'codex' },
               { label: 'Kimi', value: 'kimi' },
+              { label: 'Agy', value: 'agy' },
+              { label: 'Codex', value: 'codex' },
             ]}
             value={backend}
             onChange={(v) => setBackend(v as HistoryBackend)}
