@@ -25,33 +25,49 @@ export function readNotifyConfig(
  * Telegram's HTML/Markdown modes would let a crafted one inject formatting or
  * a bogus link next to a message the owner is about to trust.
  */
+const RULE = '━━━━━━━━━━━━━━━━━━━━';
+
 export function composeApprovalMessage(
   device: DeviceRecord,
   config: NotifyConfig,
 ): string {
   const when = new Date(device.firstSeen).toLocaleString('sv-SE');
+  // Deliberately loud. This alert may land in a chat that also carries daily
+  // pet-style cards, and an alert that looks like the routine traffic around it
+  // gets swiped past — the one time it matters is the one time it must not.
   const lines = [
-    '🔐 AgentDeck: a new device is asking to connect',
+    '⛔⛔⛔ SECURITY ALERT ⛔⛔⛔',
+    RULE,
+    'UNKNOWN DEVICE REQUESTING ACCESS',
+    RULE,
     '',
-    `Device: ${device.name}`,
-    `IP: ${device.lastIp}`,
-    `Time: ${when}`,
-    `User-Agent: ${truncate(device.userAgent, 120)}`,
+    `Device:  ${device.name}`,
+    `IP:      ${device.lastIp}`,
+    `Time:    ${when}`,
+    `Agent:   ${truncate(device.userAgent, 120)}`,
     '',
   ];
 
   if (config.publicUrl && device.approvalNonce) {
     lines.push(
-      'Approve (only if this is you):',
+      '✅ IF THIS IS YOU — tap to approve:',
       `${config.publicUrl}/api/devices/approve?nonce=${device.approvalNonce}`,
       '',
-      'If this was not you, ignore this message — the device stays blocked, and',
-      'your access token should be rotated.',
+      RULE,
+      '⚠️ IF THIS IS NOT YOU:',
+      '   1. Do NOT tap that link.',
+      '   2. Someone has your access token — rotate it now.',
+      '   3. The device stays blocked until approved, so there is no rush,',
+      '      but the token is what leaked.',
     );
   } else {
     lines.push(
-      `Approve on the Mac: device id ${device.id}`,
-      'Set AGENTDECK_PUBLIC_URL to get a one-tap approval link here instead.',
+      '✅ IF THIS IS YOU — approve on the Mac:',
+      `   device id ${device.id}`,
+      '   (set AGENTDECK_PUBLIC_URL for a one-tap link here instead)',
+      '',
+      RULE,
+      '⚠️ IF THIS IS NOT YOU: someone has your access token — rotate it now.',
     );
   }
 

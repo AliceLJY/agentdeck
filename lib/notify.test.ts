@@ -35,15 +35,28 @@ test('the alert carries a one-tap approval link', () => {
   );
 });
 
+test('the alert reads as an alarm, not as routine traffic', () => {
+  // It shares a chat with daily pet-style cards; looking similar to them is how
+  // a real intrusion notice gets swiped past.
+  const text = composeApprovalMessage(device, { publicUrl: 'https://term.example.com' });
+  assert.match(text.split('\n')[0]!, /SECURITY ALERT/, 'first line must announce itself');
+  assert.match(text.split('\n')[0]!, /⛔/);
+  assert.match(text, /IF THIS IS NOT YOU/, 'must tell the owner what to do when it is an attack');
+  assert.match(text, /rotate it now/i, 'the actual remedy is rotating the token');
+});
+
 test('without a public url it falls back to approving on the Mac', () => {
   const text = composeApprovalMessage(device, {});
   assert.doesNotMatch(text, /api\/devices\/approve/);
   assert.match(text, /dev-1/);
+  // The attack-path guidance must survive the fallback, not only the happy path.
+  assert.match(text, /IF THIS IS NOT YOU/);
 });
 
 test('a long user agent is truncated so the alert stays readable', () => {
   const text = composeApprovalMessage({ ...device, userAgent: 'x'.repeat(400) }, {});
-  const uaLine = text.split('\n').find((l) => l.startsWith('User-Agent:'))!;
+  const uaLine = text.split('\n').find((l) => l.startsWith('Agent:'));
+  assert.ok(uaLine, 'the alert must still carry the user-agent line');
   assert.ok(uaLine.length < 160, `user-agent line was ${uaLine.length} chars`);
 });
 
