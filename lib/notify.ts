@@ -100,6 +100,10 @@ export async function notifyOwner(
       console.error(`[agentdeck] Telegram alert failed: HTTP ${res.status}`);
       return false;
     }
+    // Log the success too. Without this the only evidence of delivery is the
+    // absence of an error, which cannot answer "did the alert actually go out?"
+    // months later — the one question worth asking after a real intrusion.
+    console.log(`[agentdeck] Telegram alert delivered to chat …${config.chatId.slice(-4)}`);
     return true;
   } catch (err) {
     console.error('[agentdeck] Telegram alert failed:', err);

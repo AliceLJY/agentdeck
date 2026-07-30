@@ -71,6 +71,25 @@ test('a non-2xx telegram reply is reported as not sent', async () => {
   assert.equal(sent, false);
 });
 
+test('a delivered alert is logged, so delivery is auditable later', async () => {
+  const lines: string[] = [];
+  const original = console.log;
+  console.log = (...args: unknown[]) => void lines.push(args.join(' '));
+  try {
+    await notifyOwner('hello', { botToken: 't', chatId: '1234567890' }, async () => ({
+      ok: true,
+      status: 200,
+    }));
+  } finally {
+    console.log = original;
+  }
+  assert.equal(lines.length, 1, 'a successful send must leave evidence in the log');
+  assert.match(lines[0]!, /delivered/);
+  // Only the last digits — the log must not become a place chat ids leak from.
+  assert.match(lines[0]!, /…7890/);
+  assert.doesNotMatch(lines[0]!, /1234567890/);
+});
+
 test('posts the message to the configured chat', async () => {
   const calls: Array<{ url: string; body: string }> = [];
   const sent = await notifyOwner(
