@@ -251,10 +251,12 @@ Telegram unconfigured it goes to the server log instead, and
 **A stolen token.** The thief's browser has no approved id, so it lands blocked
 and you get the alert. That is the alert worth acting on: rotate the token.
 
-**Same phone, two entries.** An installed home-screen app and the browser have
-separate localStorage, so they hold different device ids and each needs its own
-approval. That is correct — they really are two independent credentials — so the
-devices list labels the installed one `· Home Screen` to tell them apart.
+**Same phone, one or two entries — it depends on the platform.** On iOS a
+home-screen app runs in its own WebKit storage, so it holds a different device
+id than Safari and needs approving separately. On Android the Chrome shortcut
+shares Chrome's storage, so it reuses the same id and one approval covers both.
+Either way the devices list labels an installed entry `· Home Screen`, so when
+there are two rows you can tell which is which.
 
 **A lost phone.** Revoke that device from the Devices panel or with:
 
