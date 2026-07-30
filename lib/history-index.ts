@@ -63,8 +63,17 @@ interface KimiBuildOptions {
   projectId?: string;
 }
 
+interface AgyBuildOptions {
+  brainRootDir?: string;
+  lastConversationsFile?: string;
+  limit?: number;
+  projectId?: string;
+}
+
 interface CombinedBuildOptions {
   backend?: HistoryBackendFilter;
+  agyBrainRootDir?: string;
+  agyLastConversationsFile?: string;
   limit?: number;
   projectId?: string;
   claudeRootDir?: string;
@@ -136,6 +145,275 @@ export function kimiSessionIndexPath(): string {
   return path.join(process.env.HOME || '', '.kimi-code', 'session_index.jsonl');
 }
 
+/**
+ * agy (Antigravity CLI) keeps two parallel stores per conversation:
+ *   conversations/<id>.db                              — protobuf-in-SQLite, unreadable to us
+ *   brain/<id>/.system_generated/logs/transcript.jsonl — plain JSONL, what we read
+ * `cache/last_conversations.json` maps cwd -> conversation id, but only for the
+ * MOST RECENT conversation per cwd, so older sessions fall back to a synthetic
+ * cwd the same way kimi's do.
+ */
+export function agyBrainRoot(): string {
+  return path.join(process.env.HOME || '', '.gemini', 'antigravity-cli', 'brain');
+}
+
+export function agyLastConversationsPath(): string {
+  return path.join(
+    process.env.HOME || '', '.gemini', 'antigravity-cli', 'cache', 'last_conversations.json',
+  );
+}
+
+export function agyTranscriptPath(brainRoot: string, sessionId: string): string {
+  return path.join(brainRoot, sessionId, '.system_generated', 'logs', 'transcript.jsonl');
+}
+
+/**
+ * Sessions missing from last_conversations.json have no recoverable cwd.
+ * fallbackCwd() is wrong here — it splits the UUID on '-' into a fake path
+ * like /6f3d7c7e/a9fa/4ab6/..., producing one bogus project per session.
+ * Group them under the agy data dir instead: one honest "unknown cwd" bucket.
+ */
+function agyUnknownCwd(): string {
+  return path.join(process.env.HOME || '', '.gemini', 'antigravity-cli');
+}
+
+interface AgySessionCandidate {
+  sessionId: string;
+  transcriptPath: string;
+  cwd: string;
+  mtimeMs: number;
+}
+
+/** cwd -> id in the file; we need id -> cwd. Only the newest per cwd is listed. */
+async function readAgyCwdById(lastConvFile: string): Promise<Map<string, string>> {
+  const byId = new Map<string, string>();
+  try {
+    const raw = await readFile(lastConvFile, 'utf-8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    for (const [cwd, id] of Object.entries(parsed)) {
+      if (typeof id === 'string' && id) byId.set(id, cwd);
+    }
+  } catch {
+    // No index yet, or malformed — every session just falls back below.
+  }
+  return byId;
+}
+
+async function listAgySessionCandidates(
+  brainRoot: string,
+  lastConvFile: string,
+): Promise<AgySessionCandidate[]> {
+  const cwdById = await readAgyCwdById(lastConvFile);
+  let entries;
+  try {
+    entries = await readdir(brainRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const candidates: AgySessionCandidate[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const sessionId = entry.name;
+    const transcriptPath = agyTranscriptPath(brainRoot, sessionId);
+    let stats;
+    try {
+      stats = await stat(transcriptPath);
+    } catch {
+      continue; // conversation dir without a transcript yet
+    }
+    candidates.push({
+      sessionId,
+      transcriptPath,
+      cwd: cwdById.get(sessionId) || '',
+      mtimeMs: stats.mtimeMs,
+    });
+  }
+  return candidates;
+}
+
+/**
+ * transcript.jsonl line shape (verified 2026-07-30 across 27 sessions):
+ *   { step_index, source, type, status, created_at, content?, thinking?, tool_calls? }
+ * source ∈ MODEL | SYSTEM | USER_EXPLICIT
+ * The assistant's actual reply is a PLANNER_RESPONSE that HAS `content`
+ * (71 of 291 in the sample); the rest carry only `thinking` / `tool_calls`
+ * and are the model working, not talking.
+ */
+const AGY_TOOL_TYPES = new Set([
+  'RUN_COMMAND', 'VIEW_FILE', 'CODE_ACTION', 'SEARCH_WEB',
+  'GENERATE_IMAGE', 'LIST_DIRECTORY', 'INVOKE_SUBAGENT', 'ASK_QUESTION',
+]);
+// System scaffolding the user never wrote and never sees — dropping these is
+// what keeps the transcript readable.
+const AGY_SKIP_TYPES = new Set([
+  'EPHEMERAL_MESSAGE', 'CONVERSATION_HISTORY', 'CHECKPOINT', 'SYSTEM_MESSAGE',
+]);
+
+function stripUserRequestTag(text: string): string {
+  return text
+    .replace(/^\s*<USER_REQUEST>\s*/i, '')
+    .replace(/\s*<\/USER_REQUEST>\s*$/i, '')
+    .trim();
+}
+
+async function parseAgySessionWithMessages(
+  candidate: AgySessionCandidate,
+): Promise<ClaudeTranscript> {
+  let raw = '';
+  try {
+    raw = await readFile(candidate.transcriptPath, 'utf-8');
+  } catch {
+    // Fall through with an empty transcript rather than dropping the session
+  }
+
+  const messages: ClaudeTranscriptMessage[] = [];
+  let createdAtMs = candidate.mtimeMs;
+  let lastTimeMs = candidate.mtimeMs;
+  let sawFirstTime = false;
+
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    let record: Record<string, unknown>;
+    try {
+      record = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    const type = typeof record.type === 'string' ? record.type : '';
+    if (AGY_SKIP_TYPES.has(type)) continue;
+
+    const parsedTime = typeof record.created_at === 'string'
+      ? Date.parse(record.created_at)
+      : NaN;
+    const timeMs = Number.isFinite(parsedTime) ? parsedTime : lastTimeMs;
+    if (Number.isFinite(parsedTime)) {
+      lastTimeMs = parsedTime;
+      if (!sawFirstTime) {
+        createdAtMs = parsedTime;
+        sawFirstTime = true;
+      }
+    }
+
+    const content = typeof record.content === 'string' ? record.content : '';
+
+    if (type === 'USER_INPUT' || record.source === 'USER_EXPLICIT') {
+      const text = normalizeText(stripUserRequestTag(content));
+      if (!text) continue;
+      messages.push({
+        id: `agy-${messages.length}`,
+        role: 'user',
+        text,
+        timestamp: new Date(timeMs).toISOString(),
+      });
+      continue;
+    }
+
+    if (type === 'PLANNER_RESPONSE' || type === 'FINISH' || type === 'ERROR_MESSAGE') {
+      const text = normalizeText(content);
+      if (!text) continue; // thinking/tool_calls only — the model working, not talking
+      messages.push({
+        id: `agy-${messages.length}`,
+        role: 'assistant',
+        text,
+        timestamp: new Date(timeMs).toISOString(),
+      });
+      continue;
+    }
+
+    if (AGY_TOOL_TYPES.has(type)) {
+      const text = normalizeText(content);
+      if (!text) continue;
+      messages.push({
+        id: `agy-${messages.length}`,
+        role: 'assistant',
+        text: `[${type}] ${text}`,
+        timestamp: new Date(timeMs).toISOString(),
+      });
+    }
+  }
+
+  const trimmed = messages.slice(-MAX_HISTORY_MESSAGES);
+  const firstUser = messages.find((message) => message.role === 'user');
+  const last = messages[messages.length - 1];
+  const cwd = candidate.cwd || agyUnknownCwd();
+  const projectId = projectIdFromCwd(cwd);
+
+  return {
+    session: {
+      backend: 'agy',
+      projectId,
+      projectName: projectNameFromCwd(cwd, projectId),
+      cwd,
+      sessionId: candidate.sessionId,
+      title: trimPreview(firstUser?.text || ''),
+      preview: trimPreview(firstUser?.text || candidate.sessionId),
+      lastMessagePreview: trimPreview(last?.text || ''),
+      messageCount: messages.length,
+      createdAt: new Date(createdAtMs).toISOString(),
+      updatedAt: new Date(Math.max(lastTimeMs, createdAtMs)).toISOString(),
+    },
+    messages: trimmed,
+  };
+}
+
+export async function buildAgyHistoryIndex(
+  options: AgyBuildOptions = {},
+): Promise<ClaudeHistoryIndex> {
+  const brainRoot = options.brainRootDir || agyBrainRoot();
+  const lastConvFile = options.lastConversationsFile || agyLastConversationsPath();
+  const limit = clampLimit(options.limit);
+  const candidates = await listAgySessionCandidates(brainRoot, lastConvFile);
+
+  const projects = new Map<string, ProjectAccumulator>();
+  for (const candidate of candidates) {
+    const cwd = candidate.cwd || agyUnknownCwd();
+    const projectId = projectIdFromCwd(cwd);
+    const project = projects.get(projectId) || {
+      backend: 'agy' as const,
+      id: projectId,
+      name: projectNameFromCwd(cwd, projectId),
+      cwd,
+      sessionCount: 0,
+      updatedAtMs: 0,
+    };
+    project.sessionCount += 1;
+    project.updatedAtMs = Math.max(project.updatedAtMs, candidate.mtimeMs);
+    projects.set(projectId, project);
+  }
+
+  const scoped = candidates
+    .filter((candidate) => {
+      if (!options.projectId) return true;
+      return projectIdFromCwd(candidate.cwd || agyUnknownCwd()) === options.projectId;
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, limit);
+
+  const sessions: ClaudeHistorySession[] = [];
+  for (const candidate of scoped) {
+    const parsed = await parseAgySessionWithMessages(candidate);
+    if (parsed.session.messageCount === 0) continue;
+    sessions.push(parsed.session);
+  }
+  sessions.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+
+  return {
+    projects: Array.from(projects.values())
+      .map((project) => ({
+        backend: project.backend,
+        id: project.id,
+        name: project.name,
+        cwd: project.cwd,
+        sessionCount: project.sessionCount,
+        updatedAt: new Date(project.updatedAtMs).toISOString(),
+      }))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+    sessions,
+  };
+}
+
 export async function buildHistoryIndex(
   options: CombinedBuildOptions = {},
 ): Promise<ClaudeHistoryIndex> {
@@ -163,17 +441,19 @@ export async function buildHistoryIndex(
       projectId: options.projectId,
     });
   }
+  if (backend === 'agy') {
+    return buildAgyHistoryIndex({
+      brainRootDir: options.agyBrainRootDir,
+      lastConversationsFile: options.agyLastConversationsFile,
+      limit: options.limit,
+      projectId: options.projectId,
+    });
+  }
 
   const limit = clampLimit(options.limit);
-  const [claude, codex, kimi] = await Promise.all([
+  const [claude, kimi, agy, codex] = await Promise.all([
     buildClaudeHistoryIndex({
       rootDir: options.claudeRootDir,
-      limit,
-      projectId: options.projectId,
-    }),
-    buildCodexHistoryIndex({
-      sessionsRootDir: options.codexSessionsRootDir,
-      indexFile: options.codexIndexFile,
       limit,
       projectId: options.projectId,
     }),
@@ -183,12 +463,24 @@ export async function buildHistoryIndex(
       limit,
       projectId: options.projectId,
     }),
+    buildAgyHistoryIndex({
+      brainRootDir: options.agyBrainRootDir,
+      lastConversationsFile: options.agyLastConversationsFile,
+      limit,
+      projectId: options.projectId,
+    }),
+    buildCodexHistoryIndex({
+      sessionsRootDir: options.codexSessionsRootDir,
+      indexFile: options.codexIndexFile,
+      limit,
+      projectId: options.projectId,
+    }),
   ]);
 
   return {
-    projects: [...claude.projects, ...codex.projects, ...kimi.projects]
+    projects: [...claude.projects, ...kimi.projects, ...agy.projects, ...codex.projects]
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    sessions: [...claude.sessions, ...codex.sessions, ...kimi.sessions]
+    sessions: [...claude.sessions, ...kimi.sessions, ...agy.sessions, ...codex.sessions]
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
       .slice(0, limit),
   };

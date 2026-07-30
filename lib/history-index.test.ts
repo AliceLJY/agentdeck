@@ -374,6 +374,10 @@ test('builds a combined history index sorted across Claude and Codex', async () 
     // real ~/.kimi-code sessions of whoever runs the suite.
     kimiSessionsRootDir: join(root, 'kimi-sessions'),
     kimiIndexFile: join(root, 'kimi-index.jsonl'),
+    // Same for agy — otherwise the combined index picks up the real
+    // ~/.gemini/antigravity-cli/brain conversations of whoever runs the suite.
+    agyBrainRootDir: join(root, 'agy-brain'),
+    agyLastConversationsFile: join(root, 'agy-last-conversations.json'),
     limit: 10,
   });
 
