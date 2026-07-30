@@ -113,7 +113,7 @@ app.prepare().then(async () => {
       authorizeAndNotify({
         deviceId,
         userAgent: req.headers['user-agent'] ?? null,
-        // The socket is right here, so the bootstrap decision uses it directly.
+        displayMode: typeof query.displayMode === 'string' ? query.displayMode : null,
         peerIp: req.socket.remoteAddress || 'unknown',
         displayIp: displayIp(req.headers, req.socket.remoteAddress),
         now: Date.now(),
@@ -123,7 +123,12 @@ app.prepare().then(async () => {
             console.warn(
               `[agentdeck] WS blocked: device ${decision.device.id} is ${decision.outcome}`,
             );
-            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            // 400 for a missing device id: the client must fix its request,
+            // whereas 403 would suggest waiting for an approval that can never
+            // arrive (approval is keyed by the id that was not sent).
+            const status =
+              decision.outcome === 'no-device-id' ? '400 Bad Request' : '403 Forbidden';
+            socket.write(`HTTP/1.1 ${status}\r\n\r\n`);
             socket.destroy();
             return;
           }

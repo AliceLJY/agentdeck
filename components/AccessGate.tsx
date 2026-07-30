@@ -32,6 +32,11 @@ export default function AccessGate({ state, onRetry }: AccessGateProps) {
       body: 'This device was revoked by the owner. It cannot connect.',
       hint: null,
     },
+    'no-device-id': {
+      title: 'This browser cannot be identified',
+      body: 'No device id was sent, so there is nothing for the owner to approve. This usually means browser storage is blocked — leave private browsing, allow site data, then reload.',
+      hint: null,
+    },
     error: {
       title: "Can't reach the server",
       body: 'The device check did not complete. The server may be restarting.',

@@ -220,7 +220,6 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 | `AGENTDECK_TG_BOT_TOKEN` | (unset) | Telegram bot that delivers new-device alerts. Unset means alerts go to the server log only — the allowlist still blocks, you just have to look |
 | `AGENTDECK_TG_CHAT_ID` | (unset) | Chat the alerts are sent to |
 | `AGENTDECK_PUBLIC_URL` | (unset) | Public origin used to build the one-tap approval link, e.g. `https://term.example.com`. Without it the alert falls back to "approve on the Mac" |
-| `AGENTDECK_STRICT_BOOTSTRAP` | (unset) | `1` disables trust-on-first-use entirely, including from loopback. Approve the first device by editing the store file by hand |
 | `AGENTDECK_DEVICES_PATH` | `~/.agentdeck-devices.json` | Device allowlist location. Point a second instance elsewhere so it does not write into the live one |
 
 The project was called `cc-remote-term` before it grew a second backend. The
@@ -238,19 +237,24 @@ approved — checked again on the WebSocket upgrade, not just in the UI.
 approval link. Tap it and the waiting browser lets itself in within a few
 seconds; it is polling. Nothing can be approved from the blocked device itself.
 
-**The first device.** With an empty allowlist, a connection *from loopback* is
-adopted automatically, so `npm start` on the Mac never locks you out. A remote
-caller is never adopted — an empty allowlist reached through the tunnel is a
-request to approve, not a reason to trust.
+**The first device.** It waits for approval like every other one — there is no
+trust-on-first-use. An earlier version adopted the first caller that arrived
+from loopback, reasoning that loopback meant "already on this Mac". Behind an
+frp tcp tunnel that is false: every remote client reaches the server as
+`127.0.0.1`, so the first phone connecting from the public internet was adopted
+silently. One special case fewer, and nothing to spoof.
 
-"From loopback" means the transport peer, never a header. `X-Forwarded-For` is
-set by whoever is calling, so it is used for display only; the adoption check
-reads the socket, or the `x-agentdeck-peer` header the server stamps from the
-socket on every request, overwriting whatever the client sent. Sending
-`X-Forwarded-For: 127.0.0.1` from the tunnel gets a caller nothing.
+You cannot lock yourself out: the approval link arrives over Telegram. With
+Telegram unconfigured it goes to the server log instead, and
+`npm run device -- <id>` approves from the Mac.
 
 **A stolen token.** The thief's browser has no approved id, so it lands blocked
 and you get the alert. That is the alert worth acting on: rotate the token.
+
+**Same phone, two entries.** An installed home-screen app and the browser have
+separate localStorage, so they hold different device ids and each needs its own
+approval. That is correct — they really are two independent credentials — so the
+devices list labels the installed one `· Home Screen` to tell them apart.
 
 **A lost phone.** Revoke that device from the Devices panel or with:
 
@@ -260,7 +264,9 @@ curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' 
 ```
 
 Every other device keeps its session. Rotating the shared token — which signs
-everything out — is no longer the only lever.
+everything out — is no longer the only lever. From the Mac, `npm run device`
+lists everything and `npm run device -- <id> --revoke` revokes without a
+browser.
 
 **A damaged allowlist.** If the file exists but cannot be parsed, the server
 refuses every device and leaves the file untouched for repair. It does not fall
@@ -272,6 +278,13 @@ The id is an identifier, not a second secret: someone who copies both the token
 *and* localStorage off an approved browser looks like that browser. What catches
 that is the same device id connecting from two places at once — not implemented
 yet, and the honest boundary of this feature.
+
+Clearing site data drops the id, so that browser returns as a new device and
+needs approving again. iOS Safari does this on its own under storage pressure.
+
+The recorded IP is for your eyes only. Behind an frp tcp tunnel the transport
+peer is always `127.0.0.1`, so the address shown comes from `X-Forwarded-For`,
+which the caller sets — read it as a hint, never as proof of origin.
 
 Session limits (in `lib/types.ts`):
 

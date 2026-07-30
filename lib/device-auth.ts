@@ -1,17 +1,7 @@
-import { randomUUID, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import type { DeviceRecord, DeviceStore } from './device-store';
 
-export type AuthOutcome = 'allow' | 'pending' | 'revoked' | 'unavailable';
-
-/**
- * Loopback means "someone already on this Mac", which is a strictly stronger
- * position than holding the token — they could read the token off disk anyway.
- * That is the only place trust-on-first-use is safe to offer.
- */
-export function isLoopbackIp(ip: string): boolean {
-  const normalized = ip.replace(/^::ffff:/, '');
-  return normalized === '127.0.0.1' || normalized === '::1' || normalized.startsWith('127.');
-}
+export type AuthOutcome = 'allow' | 'pending' | 'revoked' | 'unavailable' | 'no-device-id';
 
 export interface AuthDecision {
   outcome: AuthOutcome;
@@ -19,22 +9,25 @@ export interface AuthDecision {
   /** True when this call created the record — the moment worth notifying about.
    *  A phone retrying every few seconds must not fire a notification per retry. */
   isFirstSighting: boolean;
-  /** Set when the device was auto-approved because the allowlist was empty. */
-  bootstrapped?: boolean;
 }
 
 export interface AuthContext {
   deviceId?: string | null;
   userAgent?: string | null;
   /**
-   * The transport peer address — never derived from a request header. This is
-   * the only address allowed to influence a decision, because X-Forwarded-For
-   * is attacker-controlled: a remote caller sending `X-Forwarded-For: 127.0.0.1`
-   * would otherwise look like loopback and adopt itself during bootstrap.
+   * Which entry point the browser is running as ('standalone' for an installed
+   * home-screen app, 'browser' otherwise). Display only — each entry point has
+   * its own localStorage and therefore its own device id, so the label is what
+   * lets the owner tell three otherwise identical "iPhone" rows apart.
+   */
+  displayMode?: string | null;
+  /**
+   * Address of the connecting peer. Recorded and shown, never used to decide:
+   * behind an frp tcp tunnel every remote client arrives as 127.0.0.1, so
+   * "looks local" carries no information about who is actually calling.
    */
   peerIp: string;
-  /** Best-effort address for the alert and the devices list. May be forged; it
-   *  is shown to the owner, never trusted. */
+  /** Best-effort address for the alert and the devices list. May be forged. */
   displayIp: string;
   now: number;
 }
@@ -59,6 +52,20 @@ export function labelFromUserAgent(ua: string | null | undefined): string {
   return 'Unknown client';
 }
 
+/**
+ * Names a device by hardware *and* entry point. An installed home-screen app
+ * and the same phone's browser have separate localStorage, so they are two
+ * device ids with identical user agents — without this the devices list shows
+ * several indistinguishable "iPhone" rows and none of them can be acted on.
+ */
+export function deviceLabel(
+  ua: string | null | undefined,
+  displayMode?: string | null,
+): string {
+  const base = labelFromUserAgent(ua);
+  return displayMode === 'standalone' ? `${base} · Home Screen` : base;
+}
+
 export function mintApprovalNonce(): string {
   return randomBytes(24).toString('hex');
 }
@@ -70,36 +77,44 @@ export function mintApprovalNonce(): string {
  * whole point is that a stolen token alone is not enough: the thief's browser
  * has no approved device id, so it lands in `pending` and the owner is told.
  *
- * Trust-on-first-use is deliberately narrow: only a loopback caller can be
- * adopted, and only while no device is approved yet. That keeps `npm start` on
- * the Mac frictionless without ever handing the same shortcut to the public
- * tunnel — an empty allowlist reached from the network is a request to approve,
- * not a reason to trust. AGENTDECK_STRICT_BOOTSTRAP=1 disables adoption
- * entirely, including from loopback.
+ * There is deliberately NO trust-on-first-use. An earlier version adopted the
+ * first caller when it arrived from loopback, on the theory that loopback means
+ * "already on this Mac". Behind an frp tcp tunnel that theory is false: every
+ * remote client reaches the server as 127.0.0.1, so the very first phone to
+ * connect from the public internet was being adopted silently — observed in
+ * production, not hypothetically. Every device now goes through approval, which
+ * is also one special case fewer to get wrong. The owner cannot be locked out
+ * because the approval link reaches them over Telegram (or, unconfigured, in
+ * the server log alongside `scripts/device-approve.mjs`).
  */
 export function authorizeDevice(
   store: DeviceStore,
   ctx: AuthContext,
-  env: Readonly<Record<string, string | undefined>> = process.env,
 ): AuthDecision {
-  const id = (ctx.deviceId || '').trim() || `unidentified-${randomUUID()}`;
+  const id = (ctx.deviceId || '').trim();
+  const name = deviceLabel(ctx.userAgent, ctx.displayMode);
 
-  // A damaged allowlist denies everything rather than degrading to "empty",
-  // which would otherwise re-open the adoption path.
+  const placeholder = (): DeviceRecord => ({
+    id: id || 'no-device-id',
+    name,
+    status: 'pending',
+    firstSeen: ctx.now,
+    lastSeen: ctx.now,
+    userAgent: ctx.userAgent || '',
+    lastIp: ctx.displayIp,
+  });
+
+  // A client that sends no device id cannot be approved — approval is keyed by
+  // that id, so a record created here could never be matched by the next
+  // request. Minting one anyway is what filled the allowlist with dead
+  // `unidentified-*` rows and fired an alert for each. Refuse instead.
+  if (!id) {
+    return { outcome: 'no-device-id', device: placeholder(), isFirstSighting: false };
+  }
+
+  // A damaged allowlist denies everything rather than degrading to "empty".
   if (store.isUnreadable()) {
-    return {
-      outcome: 'unavailable',
-      device: {
-        id,
-        name: labelFromUserAgent(ctx.userAgent),
-        status: 'pending',
-        firstSeen: ctx.now,
-        lastSeen: ctx.now,
-        userAgent: ctx.userAgent || '',
-        lastIp: ctx.displayIp,
-      },
-      isFirstSighting: false,
-    };
+    return { outcome: 'unavailable', device: placeholder(), isFirstSighting: false };
   }
 
   const existing = store.get(id);
@@ -117,23 +132,17 @@ export function authorizeDevice(
     return { outcome: 'pending', device: existing, isFirstSighting: false };
   }
 
-  const strictBootstrap = env.AGENTDECK_STRICT_BOOTSTRAP === '1';
-  const adoptSilently =
-    !strictBootstrap && !store.hasApproved() && isLoopbackIp(ctx.peerIp);
-
   const record: DeviceRecord = {
     id,
-    name: labelFromUserAgent(ctx.userAgent),
-    status: adoptSilently ? 'approved' : 'pending',
+    name,
+    status: 'pending',
     firstSeen: ctx.now,
     lastSeen: ctx.now,
     userAgent: ctx.userAgent || '',
     lastIp: ctx.displayIp,
-    ...(adoptSilently ? {} : { approvalNonce: mintApprovalNonce() }),
+    approvalNonce: mintApprovalNonce(),
   };
   store.upsert(record);
 
-  return adoptSilently
-    ? { outcome: 'allow', device: record, isFirstSighting: true, bootstrapped: true }
-    : { outcome: 'pending', device: record, isFirstSighting: true };
+  return { outcome: 'pending', device: record, isFirstSighting: true };
 }

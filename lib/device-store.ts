@@ -90,6 +90,10 @@ export class DeviceStore {
     }
     try {
       fs.writeFileSync(this.storePath, JSON.stringify(this.data, null, 2), { mode: 0o600 });
+      // writeFileSync's mode only applies when it creates the file. An existing
+      // file keeps whatever mode it had, so a copy that arrived world-readable
+      // would stay that way forever — chmod explicitly.
+      fs.chmodSync(this.storePath, 0o600);
     } catch (err) {
       console.error('[agentdeck] Failed to persist device store:', err);
     }

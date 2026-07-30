@@ -72,18 +72,25 @@ export async function authorizeAndNotify(ctx: AuthContext): Promise<AuthDecision
     return decision;
   }
 
+  // Logged, never stored: a client with no device id cannot be approved, so
+  // recording it would only add a row nothing can ever match. The user agent is
+  // kept because the cause is still unidentified — this line is the evidence
+  // the next occurrence will be diagnosed from.
+  if (decision.outcome === 'no-device-id') {
+    console.error(
+      `[agentdeck] Rejecting request without a device id — ua=${JSON.stringify(
+        decision.device.userAgent.slice(0, 160),
+      )} ip=${decision.device.lastIp}`,
+    );
+    return decision;
+  }
+
   if (decision.outcome === 'pending' && decision.isFirstSighting) {
     const config = readNotifyConfig();
     const text = composeApprovalMessage(decision.device, config);
     void notifyOwner(text, config);
     console.warn(
       `[agentdeck] Blocked unknown device ${decision.device.id} (${decision.device.name}) from ${decision.device.lastIp} (peer ${ctx.peerIp})`,
-    );
-  }
-
-  if (decision.bootstrapped) {
-    console.log(
-      `[agentdeck] Adopted first device ${decision.device.id} (${decision.device.name}) — allowlist was empty`,
     );
   }
 

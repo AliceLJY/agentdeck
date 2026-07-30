@@ -32,12 +32,29 @@ export function getDeviceId(): string {
   }
 }
 
+/**
+ * How this browser was launched. An installed home-screen app and the same
+ * phone's browser have separate localStorage, so they are genuinely two
+ * devices — this is what lets the devices list say which is which instead of
+ * showing several identical rows.
+ */
+export function getDisplayMode(): 'standalone' | 'browser' {
+  if (typeof window === 'undefined') return 'browser';
+  try {
+    const iosStandalone = (window.navigator as { standalone?: boolean }).standalone === true;
+    const matches = window.matchMedia?.('(display-mode: standalone)').matches === true;
+    return iosStandalone || matches ? 'standalone' : 'browser';
+  } catch {
+    return 'browser';
+  }
+}
+
 /** Builds the terminal WebSocket URL with both factors the server checks. */
 export function terminalWsUrl(token: string): string {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(
     token,
-  )}&deviceId=${encodeURIComponent(getDeviceId())}`;
+  )}&deviceId=${encodeURIComponent(getDeviceId())}&displayMode=${getDisplayMode()}`;
 }
 
 export type AccessState =
@@ -46,6 +63,7 @@ export type AccessState =
   | 'pending'
   | 'revoked'
   | 'unauthorized'
+  | 'no-device-id'
   | 'error';
 
 /**
@@ -56,10 +74,15 @@ export type AccessState =
 export async function checkDeviceAccess(token: string): Promise<AccessState> {
   try {
     const res = await fetch(
-      `/api/devices/self?deviceId=${encodeURIComponent(getDeviceId())}`,
+      `/api/devices/self?deviceId=${encodeURIComponent(
+        getDeviceId(),
+      )}&displayMode=${getDisplayMode()}`,
       { headers: { 'x-token': token }, cache: 'no-store' },
     );
     if (res.status === 401) return 'unauthorized';
+    // 400 = this browser sent no device id, so it can never be approved. Worth
+    // its own state: retrying will not help, and the fix is on this side.
+    if (res.status === 400) return 'no-device-id';
     // 503 = the server cannot read its allowlist and is denying everyone. It is
     // surfaced as an error, not as pending: retrying is right, approving is not.
     if (!res.ok) return 'error';

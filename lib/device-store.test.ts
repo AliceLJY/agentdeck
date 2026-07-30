@@ -42,6 +42,17 @@ test('the file is written owner-only', () => {
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 
+test('a pre-existing loose mode is tightened, not inherited', () => {
+  // writeFileSync's mode argument only applies when it creates the file, so a
+  // world-readable copy would otherwise stay world-readable through every write.
+  const file = tempPath();
+  fs.writeFileSync(file, '{}', { mode: 0o644 });
+  fs.chmodSync(file, 0o644);
+
+  new DeviceStore(file).upsert(record());
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
 test('a second instance sees the first one changes', () => {
   // The custom server and the Next route handlers may not share a module
   // graph, so every read re-reads the file rather than trusting memory.

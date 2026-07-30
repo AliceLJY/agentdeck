@@ -210,7 +210,6 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.agentdeck.web.plist
 | `AGENTDECK_TG_BOT_TOKEN` | 未设置 | 推送新设备告警的 Telegram bot。不设置则只写服务器日志 —— 白名单照样拦，只是要自己去看 |
 | `AGENTDECK_TG_CHAT_ID` | 未设置 | 告警发往哪个会话 |
 | `AGENTDECK_PUBLIC_URL` | 未设置 | 用于拼批准链接的公网地址，如 `https://term.example.com`。不设置则降级为「到 Mac 上批准」 |
-| `AGENTDECK_STRICT_BOOTSTRAP` | 未设置 | 设为 `1` 完全关掉首台自动信任，连本机也不例外。首台设备需手工改白名单文件批准 |
 | `AGENTDECK_DEVICES_PATH` | `~/.agentdeck-devices.json` | 设备白名单的位置。起第二个实例时指到别处，免得写进正在用的那份 |
 
 项目在接入第二个后端之前叫 `cc-remote-term`。旧的 `CC_TERMINAL_*` 变量和旧的
@@ -225,17 +224,20 @@ WebSocket 升级时会再查一遍，不是只在界面上做样子。
 **新设备**：直接拦住，同时往 Telegram 推一条带一次性批准链接的通知。点一下，那台
 等着的浏览器几秒内自己就进去了（它在轮询）。被拦的设备自己批准不了自己。
 
-**首台设备**：白名单为空时，**来自本机（loopback）**的连接会被自动收养，所以在 Mac 上
-`npm start` 永远不会把你锁在外面。远程来的连接绝不自动收养 —— 从隧道进来撞上一个空
-白名单，那是一个待批准请求，不是信任的理由。
+**首台设备**：和其他设备一样等批准 —— **没有「首台自动信任」**。早先的版本会收养第一个
+来自 loopback 的连接，理由是「loopback 就等于人已经在这台 Mac 上」。在 frp tcp 隧道
+后面这个理由是假的：每个远程客户端到达服务端时都是 `127.0.0.1`，所以第一台从公网连
+进来的手机会被静默收养。删掉这个特例之后，少一处判断，也没什么可伪造的了。
 
-「来自本机」指的是传输层的对端地址，不是某个请求头。`X-Forwarded-For` 是调用方自己
-写的，所以只用于显示；收养判断读的是 socket，或者服务端在每个请求上按 socket 盖的
-`x-agentdeck-peer` 头（客户端自己传的同名值一律被覆盖）。从隧道发一个
-`X-Forwarded-For: 127.0.0.1` 过来，什么也换不到。
+你不会把自己锁在外面：批准链接经 Telegram 送到手上。没配 Telegram 时它落在服务器
+日志里，另外 `npm run device -- <id>` 可以直接在 Mac 上批准。
 
 **token 被偷**：小偷的浏览器没有已批准的 id，所以会被拦住、你会收到告警。这条告警值得
 立刻处置：换 token。
+
+**同一台手机，两条记录**：桌面快捷方式（PWA）和浏览器各有独立的 localStorage，所以它们
+持有不同的 device id，各自都要批准一次。这是**正确行为** —— 它们确实是两份独立凭证 ——
+所以设备列表会给快捷方式那条标上 `· Home Screen` 以便区分。
 
 **手机丢了**：在设备面板里撤销那一台，或者：
 
@@ -245,7 +247,8 @@ curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' 
 ```
 
 其他设备的会话不受影响。「换掉共享 token」那种把所有设备一起登出的粗暴手段，不再是
-唯一选择。
+唯一选择。在 Mac 上 `npm run device` 列出全部，`npm run device -- <id> --revoke`
+不开浏览器也能撤销。
 
 **白名单文件损坏**：文件存在但解析不了时，服务端拒绝所有设备，并原样保留文件等人工修复。
 它不会降级成「空白名单」—— 因为「空」正是触发自动收养的条件。

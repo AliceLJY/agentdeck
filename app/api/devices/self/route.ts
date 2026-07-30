@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
   const decision = await authorizeAndNotify({
     deviceId,
     userAgent: req.headers.get('user-agent'),
+    displayMode: req.nextUrl.searchParams.get('displayMode'),
     // No socket here — authIp reads only the peer header the custom server
     // stamps from the socket, so X-Forwarded-For cannot reach this decision.
     peerIp: authIp(headers),
@@ -35,10 +36,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ status: 'unavailable' }, { status: 503 });
   }
 
+  if (decision.outcome === 'no-device-id') {
+    return NextResponse.json({ status: 'no-device-id' }, { status: 400 });
+  }
+
   return NextResponse.json({
     status: decision.outcome === 'allow' ? 'approved' : decision.outcome,
     deviceId: decision.device.id,
     name: decision.device.name,
-    bootstrapped: decision.bootstrapped ?? false,
   });
 }
