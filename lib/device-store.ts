@@ -19,6 +19,9 @@ export interface DeviceRecord {
   /** One-time secret embedded in the approval link. Cleared the moment it is
    *  spent, so a leaked notification cannot approve a second device later. */
   approvalNonce?: string;
+  /** When the owner was last alerted about this device. Separate from the link
+   *  expiry so a short-lived link does not imply a noisy alert stream. */
+  lastAlertedAt?: number;
   /** When that link stops working. Without an expiry the link stayed valid
    *  forever, so months later a mis-tap on an old alert in the chat history
    *  would approve a device the owner had merely ignored at the time —

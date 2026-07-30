@@ -10,6 +10,7 @@ import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
 import { isLoopbackHost, resolveServerHost } from './lib/server-config';
 import { authorizeAndNotify, deviceStore, displayIp, PEER_HEADER } from './lib/device-service';
+import { applyFailureDelay, failureCount, globalThrottle } from './lib/auth-throttle';
 
 const terminalManager = new TerminalManager();
 
@@ -102,9 +103,18 @@ app.prepare().then(async () => {
       // First factor: the shared access token.
       const token = query.token as string | undefined;
       if (token !== AGENTDECK_TOKEN) {
-        console.warn('[agentdeck] WS auth failed: invalid token');
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
+        // Delay before answering, so knocking cannot be done at line rate. A
+        // correct token never reaches this branch, so the owner is unaffected.
+        void applyFailureDelay(globalThrottle, Date.now()).then((delay) => {
+          console.warn(
+            `[agentdeck] WS auth failed: invalid token (failures in window: ${failureCount(
+              globalThrottle,
+              Date.now(),
+            )}, delayed ${delay}ms)`,
+          );
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+        });
         return;
       }
 
@@ -123,6 +133,9 @@ app.prepare().then(async () => {
       })
         .then((decision) => {
           if (decision.outcome !== 'allow') {
+            // Also throttled: a stolen token plus rotating device ids is the
+            // other way to knock at line rate.
+            void applyFailureDelay(globalThrottle, Date.now());
             console.warn(
               `[agentdeck] WS blocked: device ${decision.device.id} is ${decision.outcome}`,
             );

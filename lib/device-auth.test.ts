@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DeviceStore } from './device-store';
-import { authorizeDevice, deviceLabel, labelFromUserAgent, NONCE_TTL_MS } from './device-auth';
+import { authorizeDevice, deviceLabel, labelFromUserAgent, NONCE_TTL_MS, ALERT_THROTTLE_MS } from './device-auth';
 
 function freshStore(): DeviceStore {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdeck-devices-'));
@@ -153,7 +153,7 @@ test('an approval link stops working after its TTL', () => {
   const decision = authorizeDevice(store, { ...ctx('intruder'), now: t0 });
   const nonce = decision.device.approvalNonce!;
 
-  assert.ok(store.findByNonce(nonce, t0 + 60_000), 'usable a minute later');
+  assert.ok(store.findByNonce(nonce, t0 + NONCE_TTL_MS / 2), 'usable inside the window');
   assert.equal(
     store.findByNonce(nonce, t0 + NONCE_TTL_MS + 1),
     undefined,
@@ -166,7 +166,7 @@ test('a lapsed link is distinguishable from one that never existed', () => {
   const t0 = 1_700_000_000_000;
   const nonce = authorizeDevice(store, { ...ctx('intruder'), now: t0 }).device.approvalNonce!;
 
-  assert.equal(store.hasLapsedNonce(nonce, t0 + 60_000), false, 'still live, not lapsed');
+  assert.equal(store.hasLapsedNonce(nonce, t0 + NONCE_TTL_MS / 2), false, 'still live, not lapsed');
   assert.equal(store.hasLapsedNonce(nonce, t0 + NONCE_TTL_MS + 1), true);
   assert.equal(store.hasLapsedNonce('never-minted', t0 + NONCE_TTL_MS + 1), false);
 });
@@ -177,27 +177,36 @@ test('a device that keeps knocking past the TTL gets a fresh link and a fresh al
   const t0 = 1_700_000_000_000;
   const first = authorizeDevice(store, { ...ctx('intruder'), now: t0 });
 
-  const within = authorizeDevice(store, { ...ctx('intruder'), now: t0 + 60_000 });
+  const within = authorizeDevice(store, { ...ctx('intruder'), now: t0 + NONCE_TTL_MS / 2 });
   assert.equal(within.isFirstSighting, false, 'inside the window: still no re-alert');
   assert.equal(within.device.approvalNonce, first.device.approvalNonce, 'same link');
 
+  // Link always refreshes past the TTL, so the device never becomes unapprovable…
   const after = authorizeDevice(store, { ...ctx('intruder'), now: t0 + NONCE_TTL_MS + 1 });
-  assert.equal(after.isFirstSighting, true, 'past the window: alert again');
-  assert.notEqual(after.device.approvalNonce, first.device.approvalNonce, 'and a new link');
+  assert.notEqual(after.device.approvalNonce, first.device.approvalNonce, 'a new link');
   assert.equal(store.findByNonce(first.device.approvalNonce!, t0 + NONCE_TTL_MS + 2), undefined,
     'the superseded link must be dead');
+  // …but the owner is only told again after the (longer) alert throttle.
+  assert.equal(after.isFirstSighting, false, 'inside the throttle: no second alert');
+
+  const muchLater = authorizeDevice(store, { ...ctx('intruder'), now: t0 + ALERT_THROTTLE_MS + 1 });
+  assert.equal(muchLater.isFirstSighting, true, 'past the throttle: alert again');
 });
 
-test('the retry storm still costs one alert per window, not per attempt', () => {
+test('the retry storm costs one alert per throttle window, not per attempt', () => {
+  // With a 60s link TTL, 10 minutes spans ten link refreshes — the throttle is
+  // what keeps that from becoming ten alerts. This is why the two constants had
+  // to be decoupled when the TTL dropped to a minute.
   const store = freshStore();
   const t0 = 1_700_000_000_000;
   let alerts = 0;
-  // 60 attempts across 10 minutes — all inside one TTL window.
   for (let i = 0; i < 60; i++) {
     const d = authorizeDevice(store, { ...ctx('intruder'), now: t0 + i * 10_000 });
     if (d.isFirstSighting) alerts++;
   }
-  assert.equal(alerts, 1, 'flood protection must survive the expiry change');
+  const expected = Math.floor((59 * 10_000) / ALERT_THROTTLE_MS) + 1;
+  assert.equal(alerts, expected, `10 min of knocking = ${expected} alerts, not 60`);
+  assert.ok(alerts <= 3, 'and it must stay a handful, not a stream');
 });
 
 test('a record predating expiry tracking is treated as expired, not as eternal', () => {

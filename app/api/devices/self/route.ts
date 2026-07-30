@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { authIp, authorizeAndNotify, displayIp } from '@/lib/device-service';
+import { applyFailureDelay, globalThrottle } from '@/lib/auth-throttle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,6 +16,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const token = req.headers.get('x-token');
   if (token !== (process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN)) {
+    await applyFailureDelay(globalThrottle, Date.now());
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

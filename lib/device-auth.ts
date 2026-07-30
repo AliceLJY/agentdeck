@@ -67,15 +67,25 @@ export function deviceLabel(
 }
 
 /**
- * How long an approval link stays usable.
- *
- * It doubles as the alert throttle window, and that is deliberate: a blocked
- * device retrying every few seconds must not fire an alert per retry, but once
- * its link has lapsed the owner needs a fresh one or that device could never be
- * approved from the phone again. Tying the two together means exactly one live
- * link exists per device at any time, and re-alerting is what refreshes it.
+ * How long an approval link stays usable. One minute — Alice approves her own
+ * devices while standing in front of them, so the window only has to cover
+ * "alert arrives, I tap it", and a short window is strictly better against a
+ * stray tap on stale chat history later.
  */
-export const NONCE_TTL_MS = 15 * 60 * 1000;
+export const NONCE_TTL_MS = 60 * 1000;
+
+/**
+ * Minimum gap between alerts for the same device.
+ *
+ * Deliberately NOT equal to NONCE_TTL_MS. The two were tied together when the
+ * TTL was 15 minutes, but at a 1-minute TTL that coupling would alert once per
+ * minute for as long as an attacker keeps knocking — 1440 a day, and an alert
+ * stream that noisy gets muted, which is exactly when the real one arrives.
+ * So the link refreshes on every reconnect (the browser polls every 5s while
+ * pending, so a live link is always available), while the owner only hears
+ * about it again after this gap.
+ */
+export const ALERT_THROTTLE_MS = 5 * 60 * 1000;
 
 export function mintApprovalNonce(): string {
   return randomBytes(24).toString('hex');
@@ -145,19 +155,23 @@ export function authorizeDevice(
       return { outcome: 'revoked', device: existing, isFirstSighting: false };
     }
     store.touch(id, ctx.now, ctx.displayIp);
-    // Its link lapsed while it kept knocking: mint a new one and let the owner
-    // be told again. Without this, an expired link would leave that device
-    // permanently unapprovable from the phone — and with it, the retry storm
-    // still only costs one alert per TTL window rather than one per attempt.
+    // A lapsed link is always replaced, so the device never becomes
+    // unapprovable — the pending page polls every 5s, so whatever link the
+    // owner is about to be handed is live. Whether she *hears* about it again
+    // is a separate question, answered by the throttle below.
     if (!nonceIsLive(existing, ctx.now)) {
+      const dueForAlert =
+        typeof existing.lastAlertedAt !== 'number' ||
+        ctx.now - existing.lastAlertedAt >= ALERT_THROTTLE_MS;
       const refreshed = store.upsert({
         ...existing,
         lastSeen: ctx.now,
         lastIp: ctx.displayIp,
         approvalNonce: mintApprovalNonce(),
         nonceExpiresAt: ctx.now + NONCE_TTL_MS,
+        ...(dueForAlert ? { lastAlertedAt: ctx.now } : {}),
       });
-      return { outcome: 'pending', device: refreshed, isFirstSighting: true };
+      return { outcome: 'pending', device: refreshed, isFirstSighting: dueForAlert };
     }
     return { outcome: 'pending', device: existing, isFirstSighting: false };
   }
@@ -172,6 +186,7 @@ export function authorizeDevice(
     lastIp: ctx.displayIp,
     approvalNonce: mintApprovalNonce(),
     nonceExpiresAt: ctx.now + NONCE_TTL_MS,
+    lastAlertedAt: ctx.now,
   };
   store.upsert(record);
 

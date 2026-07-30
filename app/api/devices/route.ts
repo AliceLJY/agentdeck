@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deviceStore } from '@/lib/device-service';
+import { applyFailureDelay, globalThrottle } from '@/lib/auth-throttle';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,7 @@ function authorized(req: NextRequest): boolean {
 /** List every known device so the owner can see who is connected and act. */
 export async function GET(req: NextRequest) {
   if (!authorized(req)) {
+    await applyFailureDelay(globalThrottle, Date.now());
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   return NextResponse.json({ devices: deviceStore.list() });
@@ -25,6 +27,7 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
+    await applyFailureDelay(globalThrottle, Date.now());
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
