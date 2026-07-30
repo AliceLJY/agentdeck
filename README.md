@@ -23,8 +23,8 @@ is a day of adapter work, not a new transport; see [Adding a CLI](#adding-a-cli)
 ![AgentDeck](docs/screenshot.png)
 
 *The home screen on a phone — the backend filter across the top (All / CC / Kimi /
-Agy / Codex), recent sessions and projects below. Session titles and project names
-are redacted.*
+Agy / Codex), with recent sessions and projects below. The two lists are left
+unloaded in this shot.*
 
 ## Features
 
