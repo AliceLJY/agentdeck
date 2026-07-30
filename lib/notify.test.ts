@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { composeApprovalMessage, notifyOwner, readNotifyConfig, type Fetcher } from './notify';
+import { nonceTtlLabel, NONCE_TTL_MS } from './device-auth';
 import type { DeviceRecord } from './device-store';
 
 const device: DeviceRecord = {
@@ -123,4 +124,29 @@ test('posts the message to the configured chat', async () => {
   // No parse_mode: the attacker-controlled user agent must never be parsed as
   // markup that could forge a second link next to the real approval one.
   assert.equal(payload.parse_mode, undefined);
+});
+
+test('the alert quotes the real TTL, and no stale duration survives in the copy', () => {
+  // Regression with teeth: when NONCE_TTL_MS went 15min → 60s, three strings
+  // kept saying "15 minutes" — both the alert she reads and the expiry page she
+  // lands on lied about how long she had. This test fails if a future TTL change
+  // leaves any hardcoded duration behind.
+  const text = composeApprovalMessage(device, { publicUrl: 'https://term.example.com' });
+  const label = nonceTtlLabel();
+
+  assert.ok(text.includes(label), `alert must quote "${label}"`);
+
+  // Any duration mentioned must be the derived one. Collect every "<n> minute(s)"
+  // / "<n> second(s)" in the text and assert they all match the label.
+  const durations = text.match(/\d+\s*(?:minutes?|seconds?|min\b)/g) ?? [];
+  assert.ok(durations.length > 0, 'the alert should state a lifetime at all');
+  for (const d of durations) {
+    assert.equal(d, label, `stale duration "${d}" in the alert; expected "${label}"`);
+  }
+});
+
+test('nonceTtlLabel reads naturally at both scales', () => {
+  // Guards the pluralisation, since the constant may move either way again.
+  assert.match(nonceTtlLabel(), /^(1 minute|\d+ minutes|\d+ seconds)$/);
+  assert.equal(NONCE_TTL_MS > 0, true);
 });

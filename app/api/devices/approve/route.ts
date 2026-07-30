@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { deviceStore } from '@/lib/device-service';
+import { nonceTtlLabel } from '@/lib/device-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     return htmlResponse(
       lapsed ? 'Link expired' : 'Link no longer valid',
       lapsed
-        ? 'Approval links last 15 minutes. Open AgentDeck on that device again and a fresh alert will arrive within a few seconds.'
+        ? `Approval links last ${nonceTtlLabel()}. Open AgentDeck on that device again and a fresh alert will arrive within a few seconds.`
         : 'This link has already been used, or the device has since been revoked. Nothing was changed.',
       410,
     );

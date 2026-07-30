@@ -87,6 +87,23 @@ export const NONCE_TTL_MS = 60 * 1000;
  */
 export const ALERT_THROTTLE_MS = 5 * 60 * 1000;
 
+/**
+ * Human wording for the link lifetime, derived from the constant.
+ *
+ * It exists because the number was hardcoded in three user-facing strings, and
+ * when the TTL moved from 15 minutes to 60 seconds all three kept telling the
+ * owner "15 minutes" — the alert she reads and the expiry page she lands on both
+ * lied to her. Deriving it means the next change to NONCE_TTL_MS cannot leave
+ * stale copy behind, and a test asserts the wording matches the constant.
+ */
+export function nonceTtlLabel(): string {
+  const minutes = NONCE_TTL_MS / 60_000;
+  if (Number.isInteger(minutes) && minutes >= 1) {
+    return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+  }
+  return `${Math.round(NONCE_TTL_MS / 1000)} seconds`;
+}
+
 export function mintApprovalNonce(): string {
   return randomBytes(24).toString('hex');
 }

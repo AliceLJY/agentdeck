@@ -1,4 +1,5 @@
 import type { DeviceRecord } from './device-store';
+import { nonceTtlLabel } from './device-auth';
 
 export interface NotifyConfig {
   botToken?: string;
@@ -50,7 +51,7 @@ export function composeApprovalMessage(
 
   if (config.publicUrl && device.approvalNonce) {
     lines.push(
-      '✅ IF THIS IS YOU — tap to approve (link expires in 15 min):',
+      `✅ IF THIS IS YOU — tap to approve (link expires in ${nonceTtlLabel()}):`,
       `${config.publicUrl}/api/devices/approve?nonce=${device.approvalNonce}`,
       '',
       RULE,
@@ -59,8 +60,8 @@ export function composeApprovalMessage(
       '   2. Someone has your access token — rotate it now.',
       '   3. The device stays blocked until approved, so there is no rush,',
       '      but the token is what leaked.',
-      '   4. This link dies on its own in 15 minutes — a stray tap on an old',
-      '      alert later cannot let anything in.',
+      `   4. This link dies on its own in ${nonceTtlLabel()} — a stray tap on an`,
+      '      old alert later cannot let anything in.',
     );
   } else {
     lines.push(
