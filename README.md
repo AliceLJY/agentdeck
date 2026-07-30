@@ -266,7 +266,12 @@ curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' 
 ```
 
 Every other device keeps its session. Rotating the shared token — which signs
-everything out — is no longer the only lever. From the Mac, `npm run device`
+everything out — is no longer the only lever.
+
+A revoke also closes that device's **open** session, within one heartbeat
+(≤30s). Authorization runs at upgrade, so without this a revoked phone holding a
+live socket would keep working until it disconnected on its own — the one
+scenario revoking exists for. From the Mac, `npm run device`
 lists everything and `npm run device -- <id> --revoke` revokes without a
 browser.
 

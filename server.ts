@@ -9,7 +9,7 @@ import { TerminalManager } from './lib/terminal-manager';
 import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
 import { isLoopbackHost, resolveServerHost } from './lib/server-config';
-import { authorizeAndNotify, displayIp, PEER_HEADER } from './lib/device-service';
+import { authorizeAndNotify, deviceStore, displayIp, PEER_HEADER } from './lib/device-service';
 
 const terminalManager = new TerminalManager();
 
@@ -89,7 +89,10 @@ app.prepare().then(async () => {
     handleWebSocket(ws, { terminalManager, transcriptHub });
   });
 
-  startHeartbeat(wss);
+  // The allowlist is re-read from disk on every lookup, so a revoke landing via
+  // the API is visible to the very next sweep — no cross-process signalling
+  // needed between the route handlers and this server.
+  startHeartbeat(wss, undefined, (deviceId) => deviceStore.get(deviceId)?.status === 'approved');
 
   server.on('upgrade', (req, socket, head) => {
     const { pathname, query } = parse(req.url!, true);
@@ -133,6 +136,11 @@ app.prepare().then(async () => {
             return;
           }
           wss.handleUpgrade(req, socket, head, (ws) => {
+            // Remember which device this socket belongs to so the heartbeat can
+            // close it if that device is revoked later. Authorization otherwise
+            // happens only here, at upgrade, and a revocation would never reach
+            // a session that is already open.
+            (ws as WebSocket & { deviceId?: string }).deviceId = decision.device.id;
             wss.emit('connection', ws, req);
           });
         })

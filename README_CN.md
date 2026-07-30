@@ -248,7 +248,11 @@ curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' 
 ```
 
 其他设备的会话不受影响。「换掉共享 token」那种把所有设备一起登出的粗暴手段，不再是
-唯一选择。在 Mac 上 `npm run device` 列出全部，`npm run device -- <id> --revoke`
+唯一选择。
+
+撤销还会掐断那台设备**正在进行**的会话，一轮心跳内生效（≤30 秒）。鉴权只在建立连接时
+跑一次，所以没有这一步的话，被撤销的手机只要保持着连接就能一直用下去 —— 而那恰恰是
+「撤销」这个功能存在的唯一理由。在 Mac 上 `npm run device` 列出全部，`npm run device -- <id> --revoke`
 不开浏览器也能撤销。
 
 **白名单文件损坏**：文件存在但解析不了时，服务端拒绝所有设备，并原样保留文件等人工修复。
