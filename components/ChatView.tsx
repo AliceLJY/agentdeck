@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { terminalWsUrl } from '@/lib/device-client';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import CopyButton from '@/components/CopyButton';
@@ -71,10 +72,7 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
 
     const connect = () => {
       if (disposed) return;
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(
-        `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
-      );
+      const ws = new WebSocket(terminalWsUrl(token));
       wsRef.current = ws;
 
       ws.onopen = () => {

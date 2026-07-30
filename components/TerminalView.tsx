@@ -12,6 +12,7 @@ import type { FitAddon as FitAddonType } from '@xterm/addon-fit';
 import type { ServerMessage, TerminalCreateOptions } from '@/lib/types';
 import type { HistoryBackend } from '@/lib/backends';
 import { bracketed } from '@/lib/paste';
+import { terminalWsUrl } from '@/lib/device-client';
 
 // ─── Terminal Themes ───
 
@@ -462,10 +463,7 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       const connectWebSocket = (term: XTerminal, fitAddon: FitAddonType) => {
         if (disposed) return;
 
-        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(
-          `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
-        );
+        const ws = new WebSocket(terminalWsUrl(token));
         wsRef.current = ws;
 
         ws.onopen = () => {
