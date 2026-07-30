@@ -41,6 +41,7 @@
 - **复制不再费劲** — 一下点掉：复制一个代码块、复制整条回复、或复制历史视图里的任意一条。代码块按气泡宽度折行，不再横向滚动——在手机上拖那条横向滚动条实在不是人干的事
 - **深色/浅色主题** — 跟随系统，侧边栏可切换
 - **Token 认证** — token 不会写入页面 HTML；通过 `?token=` 链接或登录框提供，浏览器会记住
+- **设备白名单** — 光有 token 还进不来：浏览器还必须是已批准的设备。陌生设备会被拦住，同时给你推一条带一次性批准链接的 Telegram 通知，所以 token 泄露不等于交出一个 shell。手机丢了？撤销那一台就行，其他设备照常用 —— 见 [设备管理](#设备管理)
 - **单端口** — HTTP + WebSocket 共用一个端口（默认 3109）
 
 ## 架构
@@ -206,9 +207,49 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.agentdeck.web.plist
 | `PORT` | `3109` | 服务端口 |
 | `NODE_ENV` | `development` | 设为 `production` 使用优化构建 |
 | `AGENTDECK_TIME_ZONE` | `Asia/Singapore` | 对话记录时间戳使用的 IANA 时区 |
+| `AGENTDECK_TG_BOT_TOKEN` | 未设置 | 推送新设备告警的 Telegram bot。不设置则只写服务器日志 —— 白名单照样拦，只是要自己去看 |
+| `AGENTDECK_TG_CHAT_ID` | 未设置 | 告警发往哪个会话 |
+| `AGENTDECK_PUBLIC_URL` | 未设置 | 用于拼批准链接的公网地址，如 `https://term.example.com`。不设置则降级为「到 Mac 上批准」 |
+| `AGENTDECK_STRICT_BOOTSTRAP` | 未设置 | 设为 `1` 完全关掉首台自动信任，连本机也不例外。首台设备需手工改白名单文件批准 |
+| `AGENTDECK_DEVICES_PATH` | `~/.agentdeck-devices.json` | 设备白名单的位置。起第二个实例时指到别处，免得写进正在用的那份 |
 
 项目在接入第二个后端之前叫 `cc-remote-term`。旧的 `CC_TERMINAL_*` 变量和旧的
 `~/.config/cc-remote-term/token` 路径仍作为兜底读取，原地升级无需改任何配置。
+
+## 设备管理
+
+token 只是把你带到门口，开不开门由设备白名单决定。每个浏览器首次加载时生成一个
+不透明的 device id 存在 localStorage 里，服务端只在这个 id 已被批准时才放行 ——
+WebSocket 升级时会再查一遍，不是只在界面上做样子。
+
+**新设备**：直接拦住，同时往 Telegram 推一条带一次性批准链接的通知。点一下，那台
+等着的浏览器几秒内自己就进去了（它在轮询）。被拦的设备自己批准不了自己。
+
+**首台设备**：白名单为空时，**来自本机（loopback）**的连接会被自动收养，所以在 Mac 上
+`npm start` 永远不会把你锁在外面。远程来的连接绝不自动收养 —— 从隧道进来撞上一个空
+白名单，那是一个待批准请求，不是信任的理由。
+
+**token 被偷**：小偷的浏览器没有已批准的 id，所以会被拦住、你会收到告警。这条告警值得
+立刻处置：换 token。
+
+**手机丢了**：在设备面板里撤销那一台，或者：
+
+```bash
+curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"revoke","deviceId":"<id>"}' http://127.0.0.1:3109/api/devices
+```
+
+其他设备的会话不受影响。「换掉共享 token」那种把所有设备一起登出的粗暴手段，不再是
+唯一选择。
+
+**白名单文件损坏**：文件存在但解析不了时，服务端拒绝所有设备，并原样保留文件等人工修复。
+它不会降级成「空白名单」—— 因为「空」正是触发自动收养的条件。
+
+### 边界
+
+device id 是标识不是第二个密钥：如果有人把 token **和** 某台已批准浏览器的 localStorage
+一起复制走，他看起来就是那台浏览器。真能抓住这种情况的信号是「同一个 device id 同时从两个
+地方连」—— 目前还没做，这是这个功能诚实的边界。
 
 Session 参数（`lib/types.ts`）：
 

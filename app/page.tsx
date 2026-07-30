@@ -6,6 +6,7 @@ import Sidebar from '@/components/Sidebar';
 import SessionTabs from '@/components/SessionTabs';
 import HistoryHome from '@/components/HistoryHome';
 import TokenGate from '@/components/TokenGate';
+import AccessGate from '@/components/AccessGate';
 import TerminalKeyBar from '@/components/TerminalKeyBar';
 import FileUpload from '@/components/FileUpload';
 import DropZone from '@/components/DropZone';
@@ -14,6 +15,7 @@ import NewSessionPanel from '@/components/NewSessionPanel';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
+import { checkDeviceAccess, terminalWsUrl, type AccessState } from '@/lib/device-client';
 import type {
   SessionInfo,
   SessionStatus,
@@ -94,6 +96,36 @@ export default function Home() {
     }
   }, []);
 
+  // Device allowlist check. A valid token is no longer sufficient — this device
+  // must also be approved, so a stolen token cannot open a terminal. While
+  // pending we keep re-checking: the owner approving from their Telegram link
+  // should let this device in on its own, without them typing anything here.
+  const [accessState, setAccessState] = useState<AccessState>('checking');
+  const [accessCheckNonce, setAccessCheckNonce] = useState(0);
+
+  useEffect(() => {
+    if (!token) return;
+    let disposed = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const tick = async () => {
+      const next = await checkDeviceAccess(token);
+      if (disposed) return;
+      setAccessState(next);
+      if (next === 'pending' || next === 'error') {
+        timer = setTimeout(tick, 5000);
+      }
+    };
+    void tick();
+
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [token, accessCheckNonce]);
+
+  const deviceApproved = accessState === 'approved';
+
   // Detect touch device
   useEffect(() => {
     setIsTouchDevice(navigator.maxTouchPoints > 0);
@@ -154,17 +186,16 @@ export default function Home() {
   // sidebar/rail. Replaces the old fire-and-forget reconcile connection.
   const controlWsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
-    if (!token) return;
+    // Without the approval guard this socket would retry into a 403 forever,
+    // and every retry re-runs the device check on the server.
+    if (!token || !deviceApproved) return;
     let disposed = false;
     let attempts = 0;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
       if (disposed) return;
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(
-        `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
-      );
+      const ws = new WebSocket(terminalWsUrl(token));
       controlWsRef.current = ws;
 
       ws.onopen = () => {
@@ -216,7 +247,7 @@ export default function Home() {
       controlWsRef.current?.close();
       controlWsRef.current = null;
     };
-  }, [token]);
+  }, [token, deviceApproved]);
 
   // Transcripts a live session is writing right now — the sidebar marks those
   // rows so a tap resumes into the running session instead of forking it.
@@ -286,10 +317,7 @@ export default function Home() {
       // attach is handled first.
       if (token && aliveSessions.has(id)) {
         try {
-          const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-          const ws = new WebSocket(
-            `${protocol}//${location.host}/ws/terminal?token=${encodeURIComponent(token)}`,
-          );
+          const ws = new WebSocket(terminalWsUrl(token));
           ws.onopen = () => {
             ws.send(JSON.stringify({ type: 'attach', sessionId: id, streamOutput: false }));
             ws.send(JSON.stringify({ type: 'kill', sessionId: id }));
@@ -396,6 +424,29 @@ export default function Home() {
           try { localStorage.setItem('cc-terminal-token', t); } catch {}
         }}
       />
+    );
+  }
+
+  // Token accepted but the device is not approved (or the check is still in
+  // flight). Rendering the app here would fire authenticated requests that the
+  // server rejects anyway, and would hide *why* the terminal never connects.
+  if (accessState === 'unauthorized') {
+    return (
+      <TokenGate
+        onSubmit={(t) => {
+          setToken(t);
+          try { localStorage.setItem('cc-terminal-token', t); } catch {}
+          setAccessCheckNonce((n) => n + 1);
+        }}
+      />
+    );
+  }
+
+  if (!deviceApproved) {
+    // TypeScript narrows accessState here via the deviceApproved alias plus the
+    // unauthorized early return above, leaving exactly the states AccessGate takes.
+    return (
+      <AccessGate state={accessState} onRetry={() => setAccessCheckNonce((n) => n + 1)} />
     );
   }
 

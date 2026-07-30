@@ -46,6 +46,7 @@ screenshot are placeholders.*
 - **Copy without the fight** — One tap copies a code block, a whole reply, or any message in the history view. Code blocks wrap to the bubble instead of scrolling sideways, because dragging a horizontal scrollbar on a phone is nobody's idea of a good time
 - **Dark/Light theme** — Follows system preference, toggleable in sidebar
 - **Token auth** — The token is never embedded in the page HTML; supply it via a `?token=` link or the login prompt, and it's remembered per browser
+- **Device allowlist** — A valid token is not enough: the browser must also be an approved device. An unrecognised one is blocked and you get a Telegram alert with a one-tap approval link, so a leaked token does not hand over a shell. Lost a phone? Revoke that one device and every other keeps working — see [Devices](#devices)
 - **Single port** — HTTP + WebSocket on one port (default 3109), simple firewall setup
 
 ## Architecture
@@ -216,10 +217,55 @@ Use `npm run token:copy` whenever another device needs the current token. Use `n
 | `PORT` | `3109` | Server port |
 | `NODE_ENV` | `development` | Set to `production` for optimized builds |
 | `AGENTDECK_TIME_ZONE` | `Asia/Singapore` | IANA time zone used in transcript timestamps |
+| `AGENTDECK_TG_BOT_TOKEN` | (unset) | Telegram bot that delivers new-device alerts. Unset means alerts go to the server log only — the allowlist still blocks, you just have to look |
+| `AGENTDECK_TG_CHAT_ID` | (unset) | Chat the alerts are sent to |
+| `AGENTDECK_PUBLIC_URL` | (unset) | Public origin used to build the one-tap approval link, e.g. `https://term.example.com`. Without it the alert falls back to "approve on the Mac" |
+| `AGENTDECK_STRICT_BOOTSTRAP` | (unset) | `1` disables trust-on-first-use entirely, including from loopback. Approve the first device by editing the store file by hand |
+| `AGENTDECK_DEVICES_PATH` | `~/.agentdeck-devices.json` | Device allowlist location. Point a second instance elsewhere so it does not write into the live one |
 
 The project was called `cc-remote-term` before it grew a second backend. The
 old `CC_TERMINAL_*` variables are still read as a fallback, as is the old
 `~/.config/cc-remote-term/token` path, so upgrading in place needs no edits.
+
+## Devices
+
+The token gets you to the door; the device allowlist decides whether it opens.
+Every browser mints an opaque device id on first load and keeps it in
+localStorage. The server admits a connection only when that id is already
+approved — checked again on the WebSocket upgrade, not just in the UI.
+
+**A new device.** It is blocked, and an alert goes to Telegram with a single-use
+approval link. Tap it and the waiting browser lets itself in within a few
+seconds; it is polling. Nothing can be approved from the blocked device itself.
+
+**The first device.** With an empty allowlist, a connection *from loopback* is
+adopted automatically, so `npm start` on the Mac never locks you out. A remote
+caller is never adopted — an empty allowlist reached through the tunnel is a
+request to approve, not a reason to trust.
+
+**A stolen token.** The thief's browser has no approved id, so it lands blocked
+and you get the alert. That is the alert worth acting on: rotate the token.
+
+**A lost phone.** Revoke that device from the Devices panel or with:
+
+```bash
+curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action":"revoke","deviceId":"<id>"}' http://127.0.0.1:3109/api/devices
+```
+
+Every other device keeps its session. Rotating the shared token — which signs
+everything out — is no longer the only lever.
+
+**A damaged allowlist.** If the file exists but cannot be parsed, the server
+refuses every device and leaves the file untouched for repair. It does not fall
+back to "empty", because empty is what enables adoption.
+
+### Limits
+
+The id is an identifier, not a second secret: someone who copies both the token
+*and* localStorage off an approved browser looks like that browser. What catches
+that is the same device id connecting from two places at once — not implemented
+yet, and the honest boundary of this feature.
 
 Session limits (in `lib/types.ts`):
 

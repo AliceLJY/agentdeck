@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import type { TerminalCreateOptions } from '@/lib/types';
 import SidebarHistory from './SidebarHistory';
 import ThemeToggle from './ThemeToggle';
+import DevicesPanel from './DevicesPanel';
 
 type Theme = 'light' | 'dark' | 'system';
 
@@ -34,6 +36,8 @@ export default function Sidebar({
   theme,
   setTheme,
 }: SidebarProps) {
+  const [devicesOpen, setDevicesOpen] = useState(false);
+
   return (
     <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700">
       {/* Header */}
@@ -84,10 +88,21 @@ export default function Sidebar({
         />
       </div>
 
-      {/* Theme toggle at bottom */}
-      <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      {/* Theme toggle + device allowlist at bottom */}
+      <div className="px-3 py-2 border-t border-gray-200 dark:border-gray-700 pb-[calc(0.5rem+env(safe-area-inset-bottom))] flex flex-col gap-2">
         <ThemeToggle theme={theme} setTheme={setTheme} />
+        <button
+          type="button"
+          onClick={() => setDevicesOpen(true)}
+          className="w-full text-left text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 px-1 py-1"
+        >
+          Devices
+        </button>
       </div>
+
+      {devicesOpen && (
+        <DevicesPanel token={token} onClose={() => setDevicesOpen(false)} />
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { TerminalManager } from './lib/terminal-manager';
 import { transcriptHub } from './lib/transcript-hub';
 import { trackConnection, startHeartbeat } from './lib/heartbeat';
 import { isLoopbackHost, resolveServerHost } from './lib/server-config';
+import { authorizeAndNotify, clientIp } from './lib/device-service';
 
 const terminalManager = new TerminalManager();
 
@@ -90,7 +91,7 @@ app.prepare().then(async () => {
 
     // Route terminal WebSocket upgrades
     if (pathname === '/ws/terminal') {
-      // Token authentication
+      // First factor: the shared access token.
       const token = query.token as string | undefined;
       if (token !== AGENTDECK_TOKEN) {
         console.warn('[agentdeck] WS auth failed: invalid token');
@@ -99,9 +100,35 @@ app.prepare().then(async () => {
         return;
       }
 
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
-      });
+      // Second factor: the device must be on the allowlist. A stolen token
+      // alone lands here as an unknown device, gets blocked, and fires the
+      // owner alert — this is the real gate; the /api/devices/self pre-flight
+      // only exists so the browser can render *why* it was blocked.
+      const deviceId = typeof query.deviceId === 'string' ? query.deviceId : null;
+      authorizeAndNotify({
+        deviceId,
+        userAgent: req.headers['user-agent'] ?? null,
+        ip: clientIp(req.headers, req.socket.remoteAddress),
+        now: Date.now(),
+      })
+        .then((decision) => {
+          if (decision.outcome !== 'allow') {
+            console.warn(
+              `[agentdeck] WS blocked: device ${decision.device.id} is ${decision.outcome}`,
+            );
+            socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+            socket.destroy();
+            return;
+          }
+          wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit('connection', ws, req);
+          });
+        })
+        .catch((err) => {
+          console.error('[agentdeck] Device authorization error:', err);
+          socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+          socket.destroy();
+        });
       return;
     }
 
