@@ -15,13 +15,15 @@ function freshStore(): DeviceStore {
 const ctx = (deviceId: string | null, ua = 'Mozilla/5.0 (iPhone)') => ({
   deviceId,
   userAgent: ua,
-  ip: '203.0.113.7',
+  peerIp: '203.0.113.7',
+  displayIp: '203.0.113.7',
   now: 1_700_000_000_000,
 });
 
 const localCtx = (deviceId: string | null, ua = 'Mozilla/5.0 (Macintosh)') => ({
   ...ctx(deviceId, ua),
-  ip: '127.0.0.1',
+  peerIp: '127.0.0.1',
+  displayIp: '127.0.0.1',
 });
 
 test('adopts the first device from loopback so a fresh install is not locked out', () => {
@@ -42,6 +44,28 @@ test('an empty allowlist reached from the network is NOT adopted', () => {
   assert.equal(decision.outcome, 'pending');
   assert.notEqual(decision.bootstrapped, true);
   assert.equal(store.hasApproved(), false, 'a remote caller must not seed the allowlist');
+});
+
+test('a remote caller claiming to be loopback is NOT adopted', () => {
+  // Regression for the spoofable-field bypass: displayIp comes from
+  // X-Forwarded-For and is attacker-controlled, so only peerIp may decide.
+  const store = freshStore();
+  const spoofed = { ...ctx('attacker'), displayIp: '127.0.0.1' };
+
+  const decision = authorizeDevice(store, spoofed, {});
+  assert.equal(decision.outcome, 'pending');
+  assert.notEqual(decision.bootstrapped, true);
+  assert.equal(store.hasApproved(), false, 'a forged header must not seed the allowlist');
+});
+
+test('an unknown peer address is not treated as loopback', () => {
+  const store = freshStore();
+  const decision = authorizeDevice(
+    store,
+    { ...ctx('mystery'), peerIp: 'unknown', displayIp: 'unknown' },
+    {},
+  );
+  assert.equal(decision.outcome, 'pending');
 });
 
 test('blocks every later unknown device once one is approved', () => {

@@ -26,7 +26,16 @@ export interface AuthDecision {
 export interface AuthContext {
   deviceId?: string | null;
   userAgent?: string | null;
-  ip: string;
+  /**
+   * The transport peer address — never derived from a request header. This is
+   * the only address allowed to influence a decision, because X-Forwarded-For
+   * is attacker-controlled: a remote caller sending `X-Forwarded-For: 127.0.0.1`
+   * would otherwise look like loopback and adopt itself during bootstrap.
+   */
+  peerIp: string;
+  /** Best-effort address for the alert and the devices list. May be forged; it
+   *  is shown to the owner, never trusted. */
+  displayIp: string;
   now: number;
 }
 
@@ -87,7 +96,7 @@ export function authorizeDevice(
         firstSeen: ctx.now,
         lastSeen: ctx.now,
         userAgent: ctx.userAgent || '',
-        lastIp: ctx.ip,
+        lastIp: ctx.displayIp,
       },
       isFirstSighting: false,
     };
@@ -97,20 +106,20 @@ export function authorizeDevice(
 
   if (existing) {
     if (existing.status === 'approved') {
-      store.touch(id, ctx.now, ctx.ip);
+      store.touch(id, ctx.now, ctx.displayIp);
       return { outcome: 'allow', device: existing, isFirstSighting: false };
     }
     if (existing.status === 'revoked') {
-      store.touch(id, ctx.now, ctx.ip);
+      store.touch(id, ctx.now, ctx.displayIp);
       return { outcome: 'revoked', device: existing, isFirstSighting: false };
     }
-    store.touch(id, ctx.now, ctx.ip);
+    store.touch(id, ctx.now, ctx.displayIp);
     return { outcome: 'pending', device: existing, isFirstSighting: false };
   }
 
   const strictBootstrap = env.AGENTDECK_STRICT_BOOTSTRAP === '1';
   const adoptSilently =
-    !strictBootstrap && !store.hasApproved() && isLoopbackIp(ctx.ip);
+    !strictBootstrap && !store.hasApproved() && isLoopbackIp(ctx.peerIp);
 
   const record: DeviceRecord = {
     id,
@@ -119,7 +128,7 @@ export function authorizeDevice(
     firstSeen: ctx.now,
     lastSeen: ctx.now,
     userAgent: ctx.userAgent || '',
-    lastIp: ctx.ip,
+    lastIp: ctx.displayIp,
     ...(adoptSilently ? {} : { approvalNonce: mintApprovalNonce() }),
   };
   store.upsert(record);
