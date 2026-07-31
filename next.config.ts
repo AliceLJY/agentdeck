@@ -2,7 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['node-pty'],
-  allowedDevOrigins: ['127.0.0.1', 'localhost', '192.0.2.10', '100.x.y.z', '198.18.0.1'],
+  // Machine-specific LAN / Tailscale addresses do not belong in a public repo.
+  // Set AGENTDECK_DEV_ORIGINS in .env.local (gitignored), comma-separated.
+  allowedDevOrigins: [
+    '127.0.0.1',
+    'localhost',
+    '198.18.0.1',
+    ...(process.env.AGENTDECK_DEV_ORIGINS?.split(',').map((s) => s.trim()).filter(Boolean) ?? []),
+  ],
   async headers() {
     return [
       {
