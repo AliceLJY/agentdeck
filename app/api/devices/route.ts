@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApprovedApiDevice } from '@/lib/api-auth';
 import { deviceStore } from '@/lib/device-service';
-import { applyFailureDelay, globalThrottle } from '@/lib/auth-throttle';
+import { publicDeviceRecord, type DeviceRecord } from '@/lib/device-store';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function authorized(req: NextRequest): boolean {
-  const token = req.headers.get('x-token');
-  return token === (process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN);
-}
-
 /** List every known device so the owner can see who is connected and act. */
 export async function GET(req: NextRequest) {
-  if (!authorized(req)) {
-    await applyFailureDelay(globalThrottle, Date.now());
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  return NextResponse.json({ devices: deviceStore.list() });
+  const authError = await requireApprovedApiDevice(req.headers);
+  if (authError) return authError;
+  return NextResponse.json({ devices: deviceStore.list().map(publicDeviceRecord) });
 }
 
 /**
@@ -26,10 +20,8 @@ export async function GET(req: NextRequest) {
  * hammer is no longer the only option.
  */
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    await applyFailureDelay(globalThrottle, Date.now());
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const authError = await requireApprovedApiDevice(req.headers);
+  if (authError) return authError;
 
   let payload: { action?: string; deviceId?: string; name?: string };
   try {
@@ -68,9 +60,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function respond(device: unknown): NextResponse {
+function respond(device: DeviceRecord | undefined): NextResponse {
   if (!device) {
     return NextResponse.json({ error: 'Device not found' }, { status: 404 });
   }
-  return NextResponse.json({ ok: true, device });
+  return NextResponse.json({ ok: true, device: publicDeviceRecord(device) });
 }

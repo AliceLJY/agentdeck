@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { getDeviceId } from '@/lib/device-client';
+import { deviceApiHeaders, getDeviceId } from '@/lib/device-client';
 
 interface DeviceRow {
   id: string;
@@ -33,7 +33,7 @@ export default function DevicesPanel({ token, onClose }: DevicesPanelProps) {
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/devices', {
-        headers: { 'x-token': token },
+        headers: deviceApiHeaders(token),
         cache: 'no-store',
       });
       if (!res.ok) {
@@ -56,12 +56,18 @@ export default function DevicesPanel({ token, onClose }: DevicesPanelProps) {
     async (deviceId: string, action: 'approve' | 'revoke' | 'delete') => {
       setBusy(deviceId);
       try {
-        await fetch('/api/devices', {
+        const res = await fetch('/api/devices', {
           method: 'POST',
-          headers: { 'x-token': token, 'Content-Type': 'application/json' },
+          headers: deviceApiHeaders(token, { 'Content-Type': 'application/json' }),
           body: JSON.stringify({ action, deviceId }),
         });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
         await load();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Device action failed');
       } finally {
         setBusy(null);
       }

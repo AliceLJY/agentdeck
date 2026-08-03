@@ -218,8 +218,8 @@ launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.agentdeck.web.plist
 ## 设备管理
 
 token 只是把你带到门口，开不开门由设备白名单决定。每个浏览器首次加载时生成一个
-不透明的 device id 存在 localStorage 里，服务端只在这个 id 已被批准时才放行 ——
-WebSocket 升级时会再查一遍，不是只在界面上做样子。
+不透明的 device id 存在 localStorage 里，服务端只在这个 id 已被批准时才放行终端和敏感
+HTTP API —— WebSocket 升级以及设备管理、历史和上传路由都会检查，不是只在界面上做样子。
 
 **新设备**：直接拦住，同时往 Telegram 推一条带一次性批准链接的通知。点一下，那台
 等着的浏览器几秒内自己就进去了（它在轮询）。被拦的设备自己批准不了自己。
@@ -240,11 +240,10 @@ WebSocket 升级时会再查一遍，不是只在界面上做样子。
 Chrome 本体共享存储，复用同一个 id，批一次就都能用。两种情况下，装成 App 的那条在设备
 列表里都会标 `· Home Screen`，出现两条时你能分清谁是谁。
 
-**手机丢了**：在设备面板里撤销那一台，或者：
+**手机丢了**：在设备面板里撤销那一台，或者在 Mac 上运行：
 
 ```bash
-curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"action":"revoke","deviceId":"<id>"}' http://127.0.0.1:3109/api/devices
+npm run device -- <id> --revoke
 ```
 
 其他设备的会话不受影响。「换掉共享 token」那种把所有设备一起登出的粗暴手段，不再是

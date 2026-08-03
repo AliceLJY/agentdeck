@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DeviceStore, type DeviceRecord } from './device-store';
+import { DeviceStore, publicDeviceRecord, type DeviceRecord } from './device-store';
 
 function tempPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentdeck-store-'));
@@ -116,4 +116,24 @@ test('touching an unknown id is a no-op, not a silent insert', () => {
   const store = new DeviceStore(tempPath());
   store.touch('ghost', 1, '::1');
   assert.equal(store.get('ghost'), undefined);
+});
+
+test('the public device shape never exposes approval internals', () => {
+  const publicRecord = publicDeviceRecord(record({
+    lastAlertedAt: NOW,
+    nonceExpiresAt: NOW + 60_000,
+  }));
+
+  assert.deepEqual(Object.keys(publicRecord).sort(), [
+    'firstSeen',
+    'id',
+    'lastIp',
+    'lastSeen',
+    'name',
+    'status',
+    'userAgent',
+  ]);
+  assert.equal('approvalNonce' in publicRecord, false);
+  assert.equal('nonceExpiresAt' in publicRecord, false);
+  assert.equal('lastAlertedAt' in publicRecord, false);
 });

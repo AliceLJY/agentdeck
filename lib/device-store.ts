@@ -30,6 +30,19 @@ export interface DeviceRecord {
   nonceExpiresAt?: number;
 }
 
+/** Explicit public projection: future private fields stay server-side by default. */
+export function publicDeviceRecord(device: DeviceRecord) {
+  return {
+    id: device.id,
+    name: device.name,
+    status: device.status,
+    firstSeen: device.firstSeen,
+    lastSeen: device.lastSeen,
+    userAgent: device.userAgent,
+    lastIp: device.lastIp,
+  };
+}
+
 /**
  * Resolved per call, never captured in a module-level constant: the custom
  * server runs through tsx while the route handlers run through the Next build,

@@ -1,5 +1,7 @@
 'use client';
 
+import { DEVICE_ID_HEADER } from './device-headers';
+
 /**
  * Client-side device identity. The id is minted once per browser and kept in
  * localStorage next to the token; it is an opaque handle, never a secret — the
@@ -49,6 +51,18 @@ export function getDisplayMode(): 'standalone' | 'browser' {
   }
 }
 
+/** Headers for APIs that require both the shared token and this browser id. */
+export function deviceApiHeaders(
+  token: string,
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    ...extra,
+    'x-token': token,
+    [DEVICE_ID_HEADER]: getDeviceId(),
+  };
+}
+
 /** Builds the terminal WebSocket URL with both factors the server checks. */
 export function terminalWsUrl(token: string): string {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -77,7 +91,7 @@ export async function checkDeviceAccess(token: string): Promise<AccessState> {
       `/api/devices/self?deviceId=${encodeURIComponent(
         getDeviceId(),
       )}&displayMode=${getDisplayMode()}`,
-      { headers: { 'x-token': token }, cache: 'no-store' },
+      { headers: deviceApiHeaders(token), cache: 'no-store' },
     );
     if (res.status === 401) return 'unauthorized';
     // 400 = this browser sent no device id, so it can never be approved. Worth

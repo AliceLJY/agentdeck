@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApprovedApiDevice } from '@/lib/api-auth';
 import { normalizeBackend } from '@/lib/backends';
 import { readClaudeTranscript, readCodexTranscript, readKimiTranscript } from '@/lib/history-index';
 
@@ -6,10 +7,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const token = req.headers.get('x-token');
-  if (token !== (process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const authError = await requireApprovedApiDevice(req.headers);
+  if (authError) return authError;
 
   const projectId = req.nextUrl.searchParams.get('projectId');
   const sessionId = req.nextUrl.searchParams.get('sessionId');

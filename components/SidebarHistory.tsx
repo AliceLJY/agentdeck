@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ClaudeHistoryIndex, ClaudeHistorySession } from '@/lib/history-index';
 import { formatRelative } from '@/lib/history-format';
 import { getBackendDisplay } from '@/lib/backends';
+import { deviceApiHeaders } from '@/lib/device-client';
 import type { TerminalCreateOptions } from '@/lib/types';
 
 /** Deliberately short: the sidebar is for jumping back to something recent.
@@ -36,7 +37,7 @@ export default function SidebarHistory({
     try {
       const res = await fetch(`/api/history?limit=${LIMIT}&backend=all`, {
         cache: 'no-store',
-        headers: { 'x-token': token },
+        headers: deviceApiHeaders(token),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load history');
       const data = await res.json() as ClaudeHistoryIndex;

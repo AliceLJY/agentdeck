@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { deviceApiHeaders } from '@/lib/device-client';
 
 interface DropZoneProps {
   token: string;
@@ -23,7 +24,7 @@ export default function DropZone({ token, onFileUploaded, children }: DropZonePr
 
       const res = await fetch('/api/upload', {
         method: 'POST',
-        headers: { 'x-token': token },
+        headers: deviceApiHeaders(token),
         body: formData,
       });
 

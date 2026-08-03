@@ -232,8 +232,9 @@ old `CC_TERMINAL_*` variables are still read as a fallback, as is the old
 
 The token gets you to the door; the device allowlist decides whether it opens.
 Every browser mints an opaque device id on first load and keeps it in
-localStorage. The server admits a connection only when that id is already
-approved — checked again on the WebSocket upgrade, not just in the UI.
+localStorage. The server admits terminal and sensitive HTTP API access only when
+that id is already approved — checked on the WebSocket upgrade and on device,
+history, and upload routes, not just in the UI.
 
 **A new device.** It is blocked, and an alert goes to Telegram with a single-use
 approval link. Tap it and the waiting browser lets itself in within a few
@@ -260,11 +261,10 @@ shares Chrome's storage, so it reuses the same id and one approval covers both.
 Either way the devices list labels an installed entry `· Home Screen`, so when
 there are two rows you can tell which is which.
 
-**A lost phone.** Revoke that device from the Devices panel or with:
+**A lost phone.** Revoke that device from the Devices panel or, on the Mac, with:
 
 ```bash
-curl -X POST -H "x-token: $AGENTDECK_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"action":"revoke","deviceId":"<id>"}' http://127.0.0.1:3109/api/devices
+npm run device -- <id> --revoke
 ```
 
 Every other device keeps its session. Rotating the shared token — which signs

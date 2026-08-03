@@ -14,6 +14,7 @@ import {
   type HistoryBackend,
   type HistoryBackendFilter,
 } from '@/lib/backends';
+import { deviceApiHeaders } from '@/lib/device-client';
 
 interface TerminalLaunchOptions {
   backend?: HistoryBackend;
@@ -61,7 +62,7 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
       if (scope) params.set('projectId', scope.projectId);
       const res = await fetch(`/api/history?${params.toString()}`, {
         cache: 'no-store',
-        headers: { 'x-token': token },
+        headers: deviceApiHeaders(token),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load history');
       const data = await res.json() as ClaudeHistoryIndex;
@@ -90,7 +91,7 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
       });
       const res = await fetch(`/api/history/session?${params.toString()}`, {
         cache: 'no-store',
-        headers: { 'x-token': token },
+        headers: deviceApiHeaders(token),
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load transcript');
       setTranscript(await res.json() as ClaudeTranscript);
@@ -522,4 +523,3 @@ function EmptyState({ text }: { text: string }) {
     </div>
   );
 }
-

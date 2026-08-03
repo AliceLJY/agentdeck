@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { requireApprovedApiDevice } from '@/lib/api-auth';
 import { writePrivateUpload } from '@/lib/secure-upload';
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 
 export async function POST(req: NextRequest) {
-  // Simple token auth
-  const token = req.headers.get('x-token');
-  if (token !== (process.env.AGENTDECK_TOKEN || process.env.CC_TERMINAL_TOKEN)) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const authError = await requireApprovedApiDevice(req.headers);
+  if (authError) return authError;
 
   try {
     const formData = await req.formData();

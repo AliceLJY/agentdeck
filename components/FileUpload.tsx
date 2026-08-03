@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef } from 'react';
+import { deviceApiHeaders } from '@/lib/device-client';
 
 interface FileUploadProps {
   token: string;
@@ -22,7 +23,7 @@ export default function FileUpload({ token, onFileUploaded, disabled }: FileUplo
 
       const res = await fetch('/api/upload', {
         method: 'POST',
-        headers: { 'x-token': token },
+        headers: deviceApiHeaders(token),
         body: formData,
       });
 
