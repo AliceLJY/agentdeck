@@ -28,6 +28,44 @@ import {
 const TMUX_SOCKET = 'ccrt';
 const TMUX_PREFIX = 'ccrt';
 
+/** Executable lookup order per backend, first existing path wins;
+ *  `findExecutable` falls back to `which <backend>` when none of them exist.
+ *
+ *  Typed as Record<HistoryBackend, …> on purpose: adding an id to
+ *  HistoryBackend without adding it here is a compile error. This used to be a
+ *  chain of `if (backend === …)` ending in a `claude` fallback, and agy — added
+ *  2026-07-30 — fell straight through it, launching `claude` with agy-only
+ *  flags (`--conversation`, `--mode`) that claude rejects. Nothing surfaced the
+ *  mistake because the fallback's `which claude` succeeds, so there was never
+ *  an "agy not found" to notice. Fixed 2026-08-07. */
+function backendExecutableCandidates(home: string): Record<HistoryBackend, string[]> {
+  return {
+    claude: [
+      path.join(home, '.local', 'bin', 'claude'),
+      '/opt/homebrew/bin/claude',
+      '/usr/local/bin/claude',
+    ],
+    codex: [
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      path.join(home, '.local', 'bin', 'codex'),
+    ],
+    // kimi-code installs to ~/.kimi-code/bin, which is not on PATH by default —
+    // check there first so a missing PATH entry isn't read as "kimi is not installed".
+    kimi: [
+      path.join(home, '.kimi-code', 'bin', 'kimi'),
+      path.join(home, '.local', 'bin', 'kimi'),
+      '/opt/homebrew/bin/kimi',
+      '/usr/local/bin/kimi',
+    ],
+    agy: [
+      '/opt/homebrew/bin/agy',
+      '/usr/local/bin/agy',
+      path.join(home, '.local', 'bin', 'agy'),
+    ],
+  };
+}
+
 interface TerminalSession {
   id: string;
   backend: HistoryBackend;
@@ -541,30 +579,8 @@ export class TerminalManager {
   }
 
   private findBackendExecutable(backend: HistoryBackend): string {
-    if (backend === 'kimi') {
-      // kimi-code installs to ~/.kimi-code/bin, which is not on PATH by
-      // default — check there first so a missing PATH entry isn't read as
-      // "kimi is not installed".
-      return this.findExecutable('kimi', [
-        path.join(this.home, '.kimi-code', 'bin', 'kimi'),
-        path.join(this.home, '.local', 'bin', 'kimi'),
-        '/opt/homebrew/bin/kimi',
-        '/usr/local/bin/kimi',
-      ]);
-    }
-    if (backend === 'codex') {
-      return this.findExecutable('codex', [
-        '/opt/homebrew/bin/codex',
-        '/usr/local/bin/codex',
-        path.join(this.home, '.local', 'bin', 'codex'),
-      ]);
-    }
-
-    return this.findExecutable('claude', [
-      path.join(this.home, '.local', 'bin', 'claude'),
-      '/opt/homebrew/bin/claude',
-      '/usr/local/bin/claude',
-    ]);
+    // The backend id doubles as the CLI name, so it is also the `which` fallback.
+    return this.findExecutable(backend, backendExecutableCandidates(this.home)[backend]);
   }
 
   private findExecutable(name: string, candidates: string[]): string {
