@@ -75,7 +75,7 @@ Browser (any device)          Server (your Mac)
 - **server.ts** — Custom HTTP server serving Next.js pages + WebSocket upgrade on `/ws/terminal`
 - **TerminalManager** — Manages tmux-backed PTY lifecycles, ring buffers, attach/detach per session
 - **backends.ts** — Picks the right CLI (`claude`, `codex` or `kimi`) and builds the right argv, including each one's resume semantics (`--resume` / `resume` / `-S`)
-- **history-index.ts** — Scans `~/.claude/projects/*/` (Claude Code), `~/.codex/sessions/*/` (Codex) and `~/.kimi-code/sessions/*/` (Kimi, via its `session_index.jsonl`) into one unified history browser
+- **history-index.ts** — Scans `~/.claude/projects/*/` (Claude Code), `~/.codex/sessions/*/` (Codex) `~/.kimi-code/sessions/*/` (Kimi, via its `session_index.jsonl`) and `~/.gemini/antigravity-cli/brain/` (Agy, via its `cache/last_conversations.json`) into one unified history browser
 - **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — The read-side chat layer: finds the transcript file the CLI writes for a live session, tails it incrementally, parses it into structured messages + metadata (model, tokens, branch, tool calls), and streams them to the chat view. The CLI and terminal path stay untouched.
 - **WebSocket protocol** — JSON messages: `create` / `attach` / `input` / `resize` / `kill` / `list` (terminal), plus `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status` (chat + live status)
 
@@ -89,6 +89,7 @@ Browser (any device)          Server (your Mac)
   - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — looked up at `~/.local/bin/claude`, `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`
   - [Codex CLI](https://github.com/openai/codex) — looked up at `/opt/homebrew/bin/codex`, `/usr/local/bin/codex`, `~/.local/bin/codex`
   - [Kimi Code CLI](https://moonshotai.github.io/kimi-code/) — looked up at `~/.kimi-code/bin/kimi` first (its installer does not put itself on PATH), then `~/.local/bin/kimi` and the Homebrew prefixes
+  - [Antigravity CLI](https://antigravity.google) (`agy`) — looked up at `/opt/homebrew/bin/agy`, `/usr/local/bin/agy`, `~/.local/bin/agy`
 
   You can install only one if you only need that backend; the UI will just fail to spawn the missing one.
 

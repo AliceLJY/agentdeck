@@ -8,8 +8,8 @@
 
 **一个 backend 条目多买到的是「理解」**：对话视图、历史浏览、一键 resume 得知道这家 CLI
 把 transcript 放在哪、长什么样。[Claude Code](https://docs.anthropic.com/en/docs/claude-code)、
-[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)
-内置了这份理解——这三个只是我天天在用、端到端实测过的那几个。接第四个是一天的适配活，
+[Codex](https://github.com/openai/codex)、[Kimi Code](https://moonshotai.github.io/kimi-code/)、
+[Antigravity](https://antigravity.google)（`agy`）内置了这份理解——这四个只是我天天在用、端到端实测过的那几个。接第五个是一天的适配活，
 不用动传输层，见[接一个新 CLI](#接一个新-cli)。
 
 **是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
@@ -23,7 +23,7 @@
 
 ## 功能
 
-- **混着开，一个 UI** — 同一个浏览器里能开 Claude Code、Codex、Kimi Code 并排跑；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿、Kimi 紫）。别的 CLI 一样能占一个标签，只是在有人给它写适配之前，没有对话视图和历史这两层
+- **混着开，一个 UI** — 同一个浏览器里能开 Claude Code、Codex、Kimi Code、Antigravity（`agy`）并排跑；每个 session 用颜色区分 backend（Claude 蓝、Codex 绿、Kimi 紫、Agy 琥珀）。别的 CLI 一样能占一个标签，只是在有人给它写适配之前，没有对话视图和历史这两层
 - **历史浏览** — 跨 backend 的 history view：按当前 backend / 项目筛选展示最近活跃的最多 25 个 session；搜索只过滤这批已加载结果（暂时没有翻页），列表里的 session 可以点一下 resume
 - **真终端** — xterm.js 渲染完整终端体验，不是 Markdown 聊天框
 - **对话视图** — 任意 live session 一键翻成结构化对话：消息气泡、Markdown 渲染、可折叠的工具调用条、自动滚底（往上翻就暂停）。它读的是 CLI 自己写的 transcript 文件，所以拿到的是完整、能滚的记录——终端取景框会把长回复裁掉半截，对话视图不会。要点 TUI 选择框 / 权限确认，一键切回真终端。
@@ -68,7 +68,7 @@
 - **server.ts** — Next.js 页面 + WebSocket（`/ws/terminal`）共用的 HTTP 服务
 - **TerminalManager** — 管 tmux + PTY 生命周期、环形缓冲、attach/detach
 - **backends.ts** — 选 `claude` / `codex` / `kimi` 可执行文件，构造对应 argv（包括各自的续会话语义：`--resume` / `resume` / `-S`）
-- **history-index.ts** — 扫描 `~/.claude/projects/*/`（Claude Code）、`~/.codex/sessions/*/`（Codex）、`~/.kimi-code/sessions/*/`（Kimi，经它的 `session_index.jsonl`），汇成统一的历史浏览
+- **history-index.ts** — 扫描 `~/.claude/projects/*/`（Claude Code）、`~/.codex/sessions/*/`（Codex）、`~/.kimi-code/sessions/*/`（Kimi，经它的 `session_index.jsonl`）、`~/.gemini/antigravity-cli/brain/`（Agy，经它的 `cache/last_conversations.json`），汇成统一的历史浏览
 - **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — 只读的对话层：找到 CLI 为某个 live session 写的 transcript 文件，增量 tail、解析成结构化消息 + 元信息（模型、token、分支、工具调用），推给对话视图。CLI 和终端那条路一点不动。
 - **WebSocket 协议** — JSON 消息：`create` / `attach` / `input` / `resize` / `kill` / `list`（终端），外加 `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status`（对话 + 实时状态）
 
@@ -82,6 +82,7 @@
   - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) — 查找路径：`~/.local/bin/claude`、`/opt/homebrew/bin/claude`、`/usr/local/bin/claude`
   - [Codex CLI](https://github.com/openai/codex) — 查找路径：`/opt/homebrew/bin/codex`、`/usr/local/bin/codex`、`~/.local/bin/codex`
   - [Kimi Code CLI](https://moonshotai.github.io/kimi-code/) — 优先查 `~/.kimi-code/bin/kimi`（它的安装器不会把自己加进 PATH），再查 `~/.local/bin/kimi` 和 Homebrew 目录
+  - [Antigravity CLI](https://antigravity.google)（`agy`）— 查找路径：`/opt/homebrew/bin/agy`、`/usr/local/bin/agy`、`~/.local/bin/agy`
 
   只装一个也行，UI 只是创建对应缺失 backend 的 session 时会报错。
 
@@ -103,7 +104,7 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Codex / Kimi 筛选切换新终端使用的后端。
+浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Kimi / Agy / Codex 筛选切换新终端使用的后端。
 
 ### 远程访问
 
@@ -273,7 +274,7 @@ Session 参数（`lib/types.ts`）：
 
 ## 接一个新 CLI
 
-内置这三个不是封闭名单，只是端到端实测过的那几个。接第四个的活分成两半，贵的那半还是可选的。
+内置这四个不是封闭名单，只是端到端实测过的那几个。接第五个的活分成两半，贵的那半还是可选的。
 
 **白拿，一行不用写。** 启动、PTY、tmux 重启后会话还在、标签栏、环形缓冲、文件上传、
 触摸滚动、粘贴——这些全都不知道也不关心对面是哪个 CLI。任何交互式程序都直接继承。
