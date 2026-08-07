@@ -38,7 +38,7 @@ const TMUX_PREFIX = 'ccrt';
  *  flags (`--conversation`, `--mode`) that claude rejects. Nothing surfaced the
  *  mistake because the fallback's `which claude` succeeds, so there was never
  *  an "agy not found" to notice. Fixed 2026-08-07. */
-function backendExecutableCandidates(home: string): Record<HistoryBackend, string[]> {
+export function backendExecutableCandidates(home: string): Record<HistoryBackend, string[]> {
   return {
     claude: [
       path.join(home, '.local', 'bin', 'claude'),

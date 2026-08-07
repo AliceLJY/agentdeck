@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findResumeHolder, stripTerminalNoise, titleFromInput } from './terminal-manager';
+import * as path from 'path';
+import {
+  backendExecutableCandidates,
+  findResumeHolder,
+  stripTerminalNoise,
+  titleFromInput,
+} from './terminal-manager';
 
 const SESSION_ID = 'df81b097-7529-43bb-bf43-6173c84b1dd2';
 
@@ -125,4 +131,30 @@ test('titleFromInput keeps the first real prompt as a single line', () => {
 test('titleFromInput yields nothing for a bare interrupt', () => {
   assert.equal(titleFromInput('\x1b'), '');
   assert.equal(titleFromInput('\x03'), '');
+});
+
+// agy spent 2026-07-30 → 08-07 launching `claude` because the lookup was a chain
+// of `if`s ending in a claude fallback. Record<HistoryBackend, …> now makes a
+// missing id a compile error — but the compiler cannot tell whether a *value*
+// points at the right CLI, and pointing agy at claude's paths is the same bug
+// wearing a different hat. That is what these two cover.
+test('every backend looks up its own CLI name, never another backend’s', () => {
+  const table = backendExecutableCandidates('/Users/test');
+  for (const [backend, candidates] of Object.entries(table)) {
+    assert.ok(candidates.length > 0, `${backend} has no candidate paths at all`);
+    for (const candidate of candidates) {
+      assert.equal(
+        path.basename(candidate),
+        backend,
+        `${backend} would launch ${path.basename(candidate)} instead (${candidate})`,
+      );
+    }
+  }
+});
+
+test('the candidate table covers every HistoryBackend id', () => {
+  assert.deepEqual(
+    Object.keys(backendExecutableCandidates('/Users/test')).sort(),
+    ['agy', 'claude', 'codex', 'kimi'],
+  );
 });
