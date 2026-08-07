@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  backendForNewTerminal,
   buildBackendCommand,
   getBackendDisplay,
   normalizeBackend,
@@ -109,4 +110,16 @@ test('appends Codex parameters on fresh launches but never on resume', () => {
     }),
     ['codex', 'resume', '--no-alt-screen', '-C', '/x', 'abc'],
   );
+});
+
+// The home screen's filter used to run through a ternary chain that only knew
+// codex and kimi, so picking Agy quietly started a *claude* session: the server
+// logged "Created: … (claude)" and nothing in the UI looked wrong. Every real
+// backend has to pass through untouched — only 'all' has no backend of its own.
+test('a new terminal follows the home filter, and only "all" falls back', () => {
+  assert.equal(backendForNewTerminal('claude'), 'claude');
+  assert.equal(backendForNewTerminal('codex'), 'codex');
+  assert.equal(backendForNewTerminal('kimi'), 'kimi');
+  assert.equal(backendForNewTerminal('agy'), 'agy');
+  assert.equal(backendForNewTerminal('all'), 'claude');
 });

@@ -14,6 +14,28 @@ interface Choice {
   value: string; // '' = CLI default (flag omitted)
 }
 
+type ChipAccent = 'blue' | 'emerald' | 'violet' | 'amber';
+
+/** Full class strings, not `bg-${accent}-600` — Tailwind only emits classes it
+ *  can see literally in the source. Typed as a Record so adding an accent
+ *  without a class is a compile error instead of a silent fall back to blue. */
+const CHIP_ACTIVE_CLASS: Record<ChipAccent, string> = {
+  blue: 'bg-blue-500 border-blue-500 text-white',
+  emerald: 'bg-emerald-600 border-emerald-600 text-white',
+  violet: 'bg-violet-600 border-violet-600 text-white',
+  amber: 'bg-amber-500 border-amber-500 text-white',
+};
+
+/** Start-button colour per backend; mirrors BACKEND_DISPLAY in lib/backends.ts
+ *  (claude blue / kimi violet / agy amber / codex emerald). Record-typed for the
+ *  same reason as above — the old ternary chain painted agy blue. */
+const START_BUTTON_CLASS: Record<HistoryBackend, string> = {
+  claude: 'bg-blue-500 hover:bg-blue-600',
+  kimi: 'bg-violet-600 hover:bg-violet-700',
+  agy: 'bg-amber-500 hover:bg-amber-600',
+  codex: 'bg-emerald-600 hover:bg-emerald-700',
+};
+
 const CLAUDE_MODELS: Choice[] = [
   { label: 'Default', value: '' },
   { label: 'Sonnet', value: 'sonnet' },
@@ -57,6 +79,20 @@ const KIMI_PERMISSIONS = [
   { label: 'Auto', value: 'auto' },
   { label: 'Plan', value: 'plan' },
 ];
+// Values mirror AGY_EFFORT_LEVELS / AGY_MODES in lib/backends.ts, which were
+// verified against `agy --help` (Antigravity CLI 1.1.8). Note there is no
+// 'xhigh' here — agy takes low|medium|high only, unlike claude.
+const AGY_EFFORTS: Choice[] = [
+  { label: 'Default', value: '' },
+  { label: 'Low', value: 'low' },
+  { label: 'Medium', value: 'medium' },
+  { label: 'High', value: 'high' },
+];
+const AGY_MODES: Choice[] = [
+  { label: 'Default', value: '' },
+  { label: 'Accept edits', value: 'accept-edits' },
+  { label: 'Plan', value: 'plan' },
+];
 
 export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelProps) {
   const [backend, setBackend] = useState<HistoryBackend>('claude');
@@ -75,14 +111,31 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
     const dir = cwd.trim();
     if (dir) options.cwd = dir;
     if (model) options.model = model;
-    if (backend === 'claude') {
-      if (effort) options.effort = effort;
-      if (permissionMode) options.permissionMode = permissionMode;
-    } else if (backend === 'kimi') {
-      if (permissionMode) options.permissionMode = permissionMode;
-    } else {
-      if (reasoningEffort) options.reasoningEffort = reasoningEffort;
-      if (sandbox) options.sandbox = sandbox;
+    // Exhaustive on purpose. agy used to fall into the codex branch and receive
+    // reasoningEffort/sandbox, while buildBackendCommand reads effort and
+    // permissionMode for it — so its flags never arrived. The `never` check
+    // below turns a missing backend into a compile error rather than a silent
+    // wrong-branch.
+    switch (backend) {
+      case 'claude':
+        if (effort) options.effort = effort;
+        if (permissionMode) options.permissionMode = permissionMode;
+        break;
+      case 'kimi':
+        if (permissionMode) options.permissionMode = permissionMode;
+        break;
+      case 'agy':
+        if (effort) options.effort = effort;            // → --effort
+        if (permissionMode) options.permissionMode = permissionMode;  // → --mode
+        break;
+      case 'codex':
+        if (reasoningEffort) options.reasoningEffort = reasoningEffort;
+        if (sandbox) options.sandbox = sandbox;
+        break;
+      default: {
+        const unhandled: never = backend;
+        throw new Error(`unhandled backend: ${unhandled}`);
+      }
     }
     onStart(options);
   };
@@ -146,6 +199,25 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
               <ChipRow choices={CLAUDE_PERMISSIONS} value={permissionMode} onChange={setPermissionMode} />
             </Section>
           </>
+        ) : backend === 'agy' ? (
+          <>
+            <Section label="Model">
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder="Default (agy's own default)"
+                spellCheck={false}
+                autoCapitalize="off"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-mono text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-amber-400"
+              />
+            </Section>
+            <Section label="Reasoning">
+              <ChipRow choices={AGY_EFFORTS} value={effort} onChange={setEffort} accent="amber" />
+            </Section>
+            <Section label="Mode">
+              <ChipRow choices={AGY_MODES} value={permissionMode} onChange={setPermissionMode} accent="amber" />
+            </Section>
+          </>
         ) : (
           <>
             <Section label="Model">
@@ -171,13 +243,7 @@ export default function NewSessionPanel({ onStart, onCancel }: NewSessionPanelPr
           <button
             onClick={start}
             disabled={starting}
-            className={`flex-1 rounded-xl py-3 text-sm font-medium text-white transition-colors disabled:opacity-50 ${
-              backend === 'codex'
-                ? 'bg-emerald-600 hover:bg-emerald-700'
-                : backend === 'kimi'
-                  ? 'bg-violet-600 hover:bg-violet-700'
-                  : 'bg-blue-500 hover:bg-blue-600'
-            }`}
+            className={`flex-1 rounded-xl py-3 text-sm font-medium text-white transition-colors disabled:opacity-50 ${START_BUTTON_CLASS[backend]}`}
           >
             {starting ? 'Starting…' : 'Start session'}
           </button>
@@ -211,13 +277,9 @@ function ChipRow({
   choices: Choice[];
   value: string;
   onChange: (value: string) => void;
-  accent?: 'blue' | 'emerald' | 'violet';
+  accent?: ChipAccent;
 }) {
-  const active = accent === 'emerald'
-    ? 'bg-emerald-600 border-emerald-600 text-white'
-    : accent === 'violet'
-      ? 'bg-violet-600 border-violet-600 text-white'
-      : 'bg-blue-500 border-blue-500 text-white';
+  const active = CHIP_ACTIVE_CLASS[accent];
   return (
     <div className="flex flex-wrap gap-2">
       {choices.map((choice) => (

@@ -104,6 +104,18 @@ export function getBackendDisplay(backend: HistoryBackend): BackendDisplay {
   return BACKEND_DISPLAY[backend];
 }
 
+/** Which backend a brand-new terminal starts with, given the home screen filter.
+ *
+ *  'all' is the only filter value with no backend of its own, so it is the only
+ *  one that falls back — every real backend passes straight through. Written as
+ *  a pass-through rather than a chain of comparisons on purpose: the previous
+ *  `filter === 'codex' ? 'codex' : filter === 'kimi' ? 'kimi' : 'claude'`
+ *  silently turned an Agy filter into a claude session, and would have done the
+ *  same to any backend added later. */
+export function backendForNewTerminal(filter: HistoryBackendFilter): HistoryBackend {
+  return filter === 'all' ? 'claude' : filter;
+}
+
 export function buildBackendCommand(options: BackendCommandOptions): string[] {
   const resumeId = options.resumeSessionId || null;
   if (options.backend === 'kimi') {

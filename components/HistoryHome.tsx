@@ -10,6 +10,7 @@ import type {
 } from '@/lib/history-index';
 import { formatRelative, formatTranscriptMessageBlock } from '@/lib/history-format';
 import {
+  backendForNewTerminal,
   getBackendDisplay,
   type HistoryBackend,
   type HistoryBackendFilter,
@@ -143,9 +144,7 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
       && project.id === selectedProjectScope.projectId,
     )
     : null;
-  const newTerminalBackend: HistoryBackend = backendFilter === 'codex'
-    ? 'codex'
-    : backendFilter === 'kimi' ? 'kimi' : 'claude';
+  const newTerminalBackend: HistoryBackend = backendForNewTerminal(backendFilter);
 
   return (
     <div className="h-full min-h-0 flex flex-col bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
