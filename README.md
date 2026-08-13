@@ -74,7 +74,7 @@ Browser (any device)          Server (your Mac)
 
 - **server.ts** — Custom HTTP server serving Next.js pages + WebSocket upgrade on `/ws/terminal`
 - **TerminalManager** — Manages tmux-backed PTY lifecycles, ring buffers, attach/detach per session
-- **backends.ts** — Picks the right CLI (`claude`, `codex` or `kimi`) and builds the right argv, including each one's resume semantics (`--resume` / `resume` / `-S`)
+- **backends.ts** — Picks the right CLI (`claude`, `kimi`, `agy` or `codex`) and builds the right argv, including each one's resume semantics (`--resume` / `-S` / `--conversation` / `resume`)
 - **history-index.ts** — Scans `~/.claude/projects/*/` (Claude Code), `~/.codex/sessions/*/` (Codex) `~/.kimi-code/sessions/*/` (Kimi, via its `session_index.jsonl`) and `~/.gemini/antigravity-cli/brain/` (Agy, via its `cache/last_conversations.json`) into one unified history browser
 - **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — The read-side chat layer: finds the transcript file the CLI writes for a live session, tails it incrementally, parses it into structured messages + metadata (model, tokens, branch, tool calls), and streams them to the chat view. The CLI and terminal path stay untouched.
 - **WebSocket protocol** — JSON messages: `create` / `attach` / `input` / `resize` / `kill` / `list` (terminal), plus `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status` (chat + live status)
@@ -112,6 +112,23 @@ npm start
 ```
 
 Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Kimi / Agy / Codex filter selects which backend new terminals start with.
+
+### Upgrade from v0.2.1
+
+```bash
+git pull --ff-only
+npm ci
+npm run build
+```
+
+Restart the existing process after the build. Existing `CC_TERMINAL_*` settings,
+the legacy token path, tmux sessions, and saved session metadata remain supported.
+The first browser connection after this upgrade waits for device approval: use
+the Telegram link, or run `npm run device` on the host when Telegram alerts are
+not configured. AgentDeck now binds to `127.0.0.1` by default; an frp client on
+the same host needs no change, but direct Tailscale or LAN access must set
+`AGENTDECK_HOST` to the intended address before restart. No token or session-data
+migration is required.
 
 ### Remote Access
 

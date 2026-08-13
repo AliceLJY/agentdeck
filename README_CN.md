@@ -12,14 +12,14 @@
 [Antigravity](https://antigravity.google)（`agy`）内置了这份理解——这四个只是我天天在用、端到端实测过的那几个。接第五个是一天的适配活，
 不用动传输层，见[接一个新 CLI](#接一个新-cli)。
 
-**是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
+**是真终端，不是阉割版聊天框。** xterm.js + node-pty + tmux 完整还原 Claude Code、Kimi Code、Antigravity 和 Codex 在终端里的体验——颜色、光标、滚动、链接，一个不少。在这之上再叠一层**可选的对话视图**：同一个 live session 渲染成干净、能滚的消息气泡，手机上读长回复、打字都顺手，底下那个真终端一点没丢。
 
 [English README](./README.md)
 
 ![AgentDeck](docs/screenshot.png)
 
-*三个 CLI 并排——顶上是 Kimi、Claude Code、Codex 的标签，侧边栏是聊过的对话。
-截图里的 session 标题和项目名都是占位示例。*
+*首页的四后端筛选——All / CC / Kimi / Agy / Codex；最近 session 和项目列表在
+这张截图中留空。*
 
 ## 功能
 
@@ -54,20 +54,22 @@
 │  + backend 标签   │         │  ├─ WebSocket 服务器   │
 │                  │         │  └─ TerminalManager   │
 │  IndexedDB       │         │     ├─ tmux:ccrt-#1   │──► claude（PTY）
-│  （Session 列表）  │         │     ├─ tmux:ccrt-#2   │──► codex（PTY）
-│                  │         │     ├─ tmux:ccrt-#3   │──► kimi（PTY）
+│  （Session 列表）  │         │     ├─ tmux:ccrt-#2   │──► kimi（PTY）
+│                  │         │     ├─ tmux:ccrt-#3   │──► agy（PTY）
+│                  │         │     ├─ tmux:ccrt-#4   │──► codex（PTY）
 └──────────────────┘         │     └─ ...            │
                              │                       │
                              │  历史扫描器：           │
                              │  ~/.claude/projects/* │
-                             │  ~/.codex/sessions/*  │
                              │  ~/.kimi-code/sessions│
+                             │  ~/.gemini/antigravity│
+                             │  ~/.codex/sessions/*  │
                              └──────────────────────┘
 ```
 
 - **server.ts** — Next.js 页面 + WebSocket（`/ws/terminal`）共用的 HTTP 服务
 - **TerminalManager** — 管 tmux + PTY 生命周期、环形缓冲、attach/detach
-- **backends.ts** — 选 `claude` / `codex` / `kimi` 可执行文件，构造对应 argv（包括各自的续会话语义：`--resume` / `resume` / `-S`）
+- **backends.ts** — 选 `claude` / `kimi` / `agy` / `codex` 可执行文件，构造对应 argv（包括各自的续会话语义：`--resume` / `-S` / `--conversation` / `resume`）
 - **history-index.ts** — 扫描 `~/.claude/projects/*/`（Claude Code）、`~/.codex/sessions/*/`（Codex）、`~/.kimi-code/sessions/*/`（Kimi，经它的 `session_index.jsonl`）、`~/.gemini/antigravity-cli/brain/`（Agy，经它的 `cache/last_conversations.json`），汇成统一的历史浏览
 - **transcript-hub.ts / transcript-parser.ts / session-discovery.ts** — 只读的对话层：找到 CLI 为某个 live session 写的 transcript 文件，增量 tail、解析成结构化消息 + 元信息（模型、token、分支、工具调用），推给对话视图。CLI 和终端那条路一点不动。
 - **WebSocket 协议** — JSON 消息：`create` / `attach` / `input` / `resize` / `kill` / `list`（终端），外加 `chat_attach` / `chat_event` / `chat_input` / `interrupt` / `watch_status`（对话 + 实时状态）
@@ -105,6 +107,20 @@ npm start
 ```
 
 浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Kimi / Agy / Codex 筛选切换新终端使用的后端。
+
+### 从 v0.2.1 升级
+
+```bash
+git pull --ff-only
+npm ci
+npm run build
+```
+
+构建完成后重启原有进程。旧的 `CC_TERMINAL_*` 配置、token 路径、tmux 会话和已保存的
+session metadata 仍然兼容。升级后的首次浏览器连接需要批准设备：已配置 Telegram 告警时
+点批准链接；未配置时在宿主机运行 `npm run device`。服务现在默认只监听 `127.0.0.1`：
+同机 frp 客户端无需改动，直接通过 Tailscale / LAN 访问则要在重启前把
+`AGENTDECK_HOST` 设为目标地址。token 和 session 数据都不需要迁移。
 
 ### 远程访问
 
