@@ -1,9 +1,14 @@
-# v0.3.0 — Four-agent deck with device approval
+# v0.3.0 — Four first-class agents, one open-ended deck
 
 AgentDeck now treats the browser as a real deck for multiple AI coding CLIs,
 with a safer public-access boundary and a terminal that behaves reliably on a
 phone. This is a backward-compatible minor release: it adds capabilities and
 keeps the pre-rename settings and data paths working.
+
+Claude Code, Kimi Code, Antigravity, and Codex are the four adapters bundled
+and tested end to end, not a closed CLI list. The PTY/tmux transport can host
+other interactive agent CLIs immediately; adding their history, chat, and
+one-click resume views is an adapter task rather than a transport rewrite.
 
 ## Highlights
 
@@ -46,5 +51,3 @@ direct Tailscale or LAN access must set `AGENTDECK_HOST` before restart.
 - Next.js production build
 - Production dependency audit at the high-severity gate
 - Clean install and local unauthenticated HTTP smoke
-
-No tag or GitHub Release is created by this preparation commit.
