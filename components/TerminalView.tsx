@@ -162,8 +162,8 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
 
         term = new Terminal({
           cursorBlink: true,
-          fontSize: isSmallScreen ? 18 : 16,
-          lineHeight: isSmallScreen ? 1.25 : 1,
+          fontSize: isSmallScreen ? 14 : 16,
+          lineHeight: isSmallScreen ? 1.15 : 1,
           fontFamily: 'Menlo, Monaco, "Courier New", monospace',
           allowProposedApi: true,
           theme: theme === 'dark' ? darkTheme : lightTheme,
