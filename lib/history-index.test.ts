@@ -242,6 +242,9 @@ test('indexes Codex JSONL sessions with backend metadata and session_index title
 
   const index = await buildCodexHistoryIndex({
     sessionsRootDir: sessionsRoot,
+    // Absent from the fixture on purpose — and required, or the scan falls back
+    // to the real ~/.codex/archived_sessions of whoever runs the suite.
+    archivedRootDir: join(root, 'archived_sessions'),
     indexFile,
     limit: 10,
   });
@@ -307,6 +310,7 @@ test('reads a compact transcript for a selected Codex session', async () => {
 
   const transcript = await readCodexTranscript({
     sessionsRootDir: join(root, 'sessions'),
+    archivedRootDir: join(root, 'archived_sessions'),
     projectId: '-Users-alice-Projects-demo-app',
     sessionId: '019ddf07-3bb0-72d0-b8da-99453394cbe4',
   });
@@ -370,6 +374,7 @@ test('builds a combined history index sorted across Claude and Codex', async () 
     backend: 'all',
     claudeRootDir: claudeRoot,
     codexSessionsRootDir: codexSessionsRoot,
+    codexArchivedRootDir: join(root, 'codex-archived-sessions'),
     // Point kimi at this fixture root too, or the combined index picks up the
     // real ~/.kimi-code sessions of whoever runs the suite.
     kimiSessionsRootDir: join(root, 'kimi-sessions'),
@@ -416,13 +421,79 @@ test('keeps the most recently active Codex session when session_index is stale',
   await utimes(fileA, new Date('2026-05-03T00:00:00.000Z'), new Date('2026-05-03T00:00:00.000Z'));
   await utimes(fileB, new Date('2026-05-01T00:00:00.000Z'), new Date('2026-05-01T00:00:00.000Z'));
 
-  const index = await buildCodexHistoryIndex({ sessionsRootDir: sessionsRoot, indexFile, limit: 1 });
+  const index = await buildCodexHistoryIndex({
+    sessionsRootDir: sessionsRoot,
+    archivedRootDir: join(root, 'archived_sessions'),
+    indexFile,
+    limit: 1,
+  });
 
   // Project list stays complete, and the single returned session is A — the
   // most recently active — even though its session_index time is stale.
   assert.equal(index.projects.length, 2);
   assert.equal(index.sessions.length, 1);
   assert.equal(index.sessions[0].sessionId, idA);
+});
+
+test('surfaces archived Codex sessions as read-only alongside live ones', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccrt-codex-archived-'));
+  const sessionsRoot = join(root, 'sessions');
+  const sessionDir = join(sessionsRoot, '2026', '05', '01');
+  // Codex's archive is a FLAT directory — no year/month/day tree.
+  const archivedRoot = join(root, 'archived_sessions');
+  await mkdir(sessionDir, { recursive: true });
+  await mkdir(archivedRoot, { recursive: true });
+
+  const liveId = '019ddf07-aaaa-72d0-b8da-000000000001';
+  const archivedId = '019ddf07-bbbb-72d0-b8da-000000000002';
+
+  await writeFile(
+    join(sessionDir, `rollout-2026-05-01T01-00-00-${liveId}.jsonl`),
+    jsonl([
+      { type: 'session_meta', payload: { id: liveId, cwd: '/Users/alice/Projects/live-app' } },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'live question' }] } },
+    ]),
+  );
+  await writeFile(
+    join(archivedRoot, `rollout-2026-04-01T01-00-00-${archivedId}.jsonl`),
+    jsonl([
+      { type: 'session_meta', payload: { id: archivedId, cwd: '/Users/alice/Projects/old-app' } },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'archived question' }] } },
+      { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'archived answer' }] } },
+    ]),
+  );
+
+  const index = await buildCodexHistoryIndex({
+    sessionsRootDir: sessionsRoot,
+    archivedRootDir: archivedRoot,
+    // Archived sessions are dropped from session_index.jsonl, so an absent
+    // index file is exactly the shape production hands us.
+    indexFile: join(root, 'session_index.jsonl'),
+    limit: 10,
+  });
+
+  assert.equal(index.sessions.length, 2);
+  const liveSession = index.sessions.find((session) => session.sessionId === liveId);
+  const archivedSession = index.sessions.find((session) => session.sessionId === archivedId);
+  assert.equal(liveSession?.archived, undefined);
+  assert.equal(archivedSession?.archived, true);
+  assert.equal(archivedSession?.projectName, 'old-app');
+
+  // Read-only chat still works after the file left sessions/.
+  const transcript = await readCodexTranscript({
+    sessionsRootDir: sessionsRoot,
+    archivedRootDir: archivedRoot,
+    projectId: '-Users-alice-Projects-old-app',
+    sessionId: archivedId,
+  });
+  assert.equal(transcript.session.archived, true);
+  assert.deepEqual(
+    transcript.messages.map((message) => [message.role, message.text]),
+    [
+      ['user', 'archived question'],
+      ['assistant', 'archived answer'],
+    ],
+  );
 });
 
 test('indexes Kimi wire logs, joining streamed parts and dropping reasoning', async () => {

@@ -15,6 +15,9 @@ export interface ClaudeHistorySession {
   messageCount: number;
   createdAt: string;
   updatedAt: string;
+  /** Codex only: the transcript lives in archived_sessions/, so there is no
+   *  live session to resume — read-only chat is the only way in. */
+  archived?: boolean;
 }
 
 export interface ClaudeHistoryProject {
@@ -51,6 +54,7 @@ interface BuildOptions {
 
 interface CodexBuildOptions {
   sessionsRootDir?: string;
+  archivedRootDir?: string;
   indexFile?: string;
   limit?: number;
   projectId?: string;
@@ -78,6 +82,7 @@ interface CombinedBuildOptions {
   projectId?: string;
   claudeRootDir?: string;
   codexSessionsRootDir?: string;
+  codexArchivedRootDir?: string;
   codexIndexFile?: string;
   kimiSessionsRootDir?: string;
   kimiIndexFile?: string;
@@ -95,6 +100,7 @@ interface CodexSessionCandidate {
   sessionId: string;
   filePath: string;
   mtimeMs: number;
+  archived?: boolean;
 }
 
 interface ProjectAccumulator {
@@ -135,6 +141,13 @@ export function codexSessionsRoot(): string {
 
 export function codexSessionIndexPath(): string {
   return path.join(process.env.HOME || '', '.codex', 'session_index.jsonl');
+}
+
+/** Codex's in-app archive MOVES rollout files out of sessions/ into this flat
+ *  directory (no year/month/day tree) and drops them from session_index.jsonl,
+ *  so any scan that only walks sessions/ silently loses every archived chat. */
+export function codexArchivedSessionsRoot(): string {
+  return path.join(process.env.HOME || '', '.codex', 'archived_sessions');
 }
 
 export function kimiSessionsRoot(): string {
@@ -428,6 +441,7 @@ export async function buildHistoryIndex(
   if (backend === 'codex') {
     return buildCodexHistoryIndex({
       sessionsRootDir: options.codexSessionsRootDir,
+      archivedRootDir: options.codexArchivedRootDir,
       indexFile: options.codexIndexFile,
       limit: options.limit,
       projectId: options.projectId,
@@ -471,6 +485,7 @@ export async function buildHistoryIndex(
     }),
     buildCodexHistoryIndex({
       sessionsRootDir: options.codexSessionsRootDir,
+      archivedRootDir: options.codexArchivedRootDir,
       indexFile: options.codexIndexFile,
       limit,
       projectId: options.projectId,
@@ -588,9 +603,10 @@ export async function buildCodexHistoryIndex(
   options: CodexBuildOptions = {},
 ): Promise<ClaudeHistoryIndex> {
   const sessionsRootDir = options.sessionsRootDir || codexSessionsRoot();
+  const archivedRootDir = options.archivedRootDir || codexArchivedSessionsRoot();
   const indexFile = options.indexFile || codexSessionIndexPath();
   const limit = clampLimit(options.limit);
-  const candidates = await listCodexSessionCandidates(sessionsRootDir);
+  const candidates = await listCodexSessionCandidates(sessionsRootDir, archivedRootDir);
   const indexEntries = await readCodexSessionIndex(indexFile);
 
   // Deduplicate by sessionId (a session can span multiple rollout files),
@@ -932,6 +948,7 @@ export async function readKimiTranscript(options: {
 
 export async function readCodexTranscript(options: {
   sessionsRootDir?: string;
+  archivedRootDir?: string;
   projectId: string;
   sessionId: string;
 }): Promise<ClaudeTranscript> {
@@ -939,7 +956,8 @@ export async function readCodexTranscript(options: {
   assertSafeSegment(options.sessionId, 'sessionId');
 
   const sessionsRootDir = options.sessionsRootDir || codexSessionsRoot();
-  const candidates = await listCodexSessionCandidates(sessionsRootDir);
+  const archivedRootDir = options.archivedRootDir || codexArchivedSessionsRoot();
+  const candidates = await listCodexSessionCandidates(sessionsRootDir, archivedRootDir);
   const directCandidates = candidates.filter((candidate) => candidate.sessionId === options.sessionId);
   const scanCandidates = directCandidates.length > 0 ? directCandidates : candidates;
 
@@ -994,12 +1012,13 @@ async function listSessionCandidates(rootDir: string): Promise<SessionCandidate[
   return candidates;
 }
 
-async function listCodexSessionCandidates(rootDir: string): Promise<CodexSessionCandidate[]> {
-  if (!existsSync(rootDir)) return [];
-
+async function listCodexSessionCandidates(
+  rootDir: string,
+  archivedRootDir?: string,
+): Promise<CodexSessionCandidate[]> {
   const candidates: CodexSessionCandidate[] = [];
 
-  async function walk(dir: string): Promise<void> {
+  async function walk(dir: string, archived: boolean): Promise<void> {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -1010,7 +1029,7 @@ async function listCodexSessionCandidates(rootDir: string): Promise<CodexSession
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        await walk(fullPath);
+        await walk(fullPath, archived);
         continue;
       }
       if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
@@ -1021,6 +1040,7 @@ async function listCodexSessionCandidates(rootDir: string): Promise<CodexSession
           sessionId: sessionIdFromCodexFileName(entry.name),
           filePath: fullPath,
           mtimeMs: fileStat.mtimeMs,
+          ...(archived ? { archived: true } : {}),
         });
       } catch {
         // Ignore files that disappear while Codex is writing history.
@@ -1028,7 +1048,8 @@ async function listCodexSessionCandidates(rootDir: string): Promise<CodexSession
     }
   }
 
-  await walk(rootDir);
+  if (existsSync(rootDir)) await walk(rootDir, false);
+  if (archivedRootDir && existsSync(archivedRootDir)) await walk(archivedRootDir, true);
   return candidates;
 }
 
@@ -1290,6 +1311,7 @@ async function parseCodexSessionWithMessages(
       messageCount: messages.length,
       createdAt: createdAt || fallbackUpdatedAt,
       updatedAt: updatedAt || fallbackUpdatedAt,
+      ...(candidate.archived ? { archived: true } : {}),
     },
     messages: messages.map((message) => ({
       id: message.id,

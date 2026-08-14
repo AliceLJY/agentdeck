@@ -339,6 +339,14 @@ function BackendBadge({ backend }: { backend: HistoryBackend }) {
   );
 }
 
+function ArchivedBadge() {
+  return (
+    <span className="shrink-0 rounded-md border px-1.5 py-0.5 text-[11px] font-medium border-gray-200 bg-gray-100 text-gray-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400">
+      Archived
+    </span>
+  );
+}
+
 function SessionRow({
   session,
   selected,
@@ -363,6 +371,7 @@ function SessionRow({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium truncate">{session.preview}</span>
           <BackendBadge backend={session.backend} />
+          {session.archived && <ArchivedBadge />}
           <span className="ml-auto shrink-0 text-xs text-gray-400">{formatRelative(session.updatedAt)}</span>
         </div>
         <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
@@ -370,15 +379,19 @@ function SessionRow({
           <span className="shrink-0">{session.messageCount}</span>
         </div>
       </button>
-      <button
-        onClick={onResume}
-        className="mt-0.5 h-8 w-8 shrink-0 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-white dark:hover:bg-gray-800 dark:hover:text-gray-100"
-        title="Resume in terminal"
-      >
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5l8 7-8 7V5z" />
-        </svg>
-      </button>
+      {/* Archived transcripts have no live session behind them — `codex resume`
+          on one fails outright, so don't offer a button that can only error. */}
+      {!session.archived && (
+        <button
+          onClick={onResume}
+          className="mt-0.5 h-8 w-8 shrink-0 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-white dark:hover:bg-gray-800 dark:hover:text-gray-100"
+          title="Resume in terminal"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5l8 7-8 7V5z" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -467,15 +480,22 @@ function TranscriptPane({
           <div className="flex items-center gap-2">
             <div className="text-sm font-medium truncate">{session.preview}</div>
             <BackendBadge backend={session.backend} />
+            {session.archived && <ArchivedBadge />}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{session.cwd}</div>
         </div>
-        <button
-          onClick={() => onResume(session)}
-          className="shrink-0 px-3 py-2 rounded-lg bg-gray-900 text-white text-sm dark:bg-gray-100 dark:text-gray-950"
-        >
-          Resume
-        </button>
+        {session.archived ? (
+          <span className="shrink-0 px-3 py-2 text-xs text-gray-400 dark:text-gray-500">
+            Archived — no live session
+          </span>
+        ) : (
+          <button
+            onClick={() => onResume(session)}
+            className="shrink-0 px-3 py-2 rounded-lg bg-gray-900 text-white text-sm dark:bg-gray-100 dark:text-gray-950"
+          >
+            Resume
+          </button>
+        )}
       </div>
       <div className="flex-1 min-h-[280px] overflow-y-auto px-4 py-3">
         {loading ? (

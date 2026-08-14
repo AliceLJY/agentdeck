@@ -41,7 +41,9 @@ export default function SidebarHistory({
       });
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load history');
       const data = await res.json() as ClaudeHistoryIndex;
-      setSessions(data.sessions.slice(0, LIMIT));
+      // Every sidebar row IS a resume button, and archived sessions have no
+      // live session to resume into — browsing those lives on the home screen.
+      setSessions(data.sessions.filter((session) => !session.archived).slice(0, LIMIT));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load history');
     } finally {
