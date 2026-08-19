@@ -25,6 +25,8 @@ const EMPTY_RESULT: ParseResult = { upserts: [], metaChanged: false };
 const MAX_SUMMARY = 80;
 /** Cap the in-memory message list; oldest entries are dropped past this. */
 export const MAX_TRANSCRIPT_MESSAGES = 1000;
+/** Unclaimed queued prompts we keep waiting on before forgetting the oldest. */
+const MAX_QUEUED_CLAIMS = 64;
 
 export class TranscriptParser {
   readonly backend: HistoryBackend;
@@ -39,6 +41,14 @@ export class TranscriptParser {
   private outByMsg = new Map<string, number>();
   /** Kimi: id of the assistant message the current step is streaming into. */
   private kimiStepMsgId: string | null = null;
+  /**
+   * Claude: prompts typed while the CLI was busy, keyed by text → the id we
+   * showed them under. A queued prompt taken out with `remove` is folded into
+   * the running turn and never gets its own `type:"user"` line, so the queue
+   * event is the only record of it. One taken out with `dequeue` *does* get a
+   * real user line — that line reclaims this id so the two never double up.
+   */
+  private queuedByText = new Map<string, string>();
 
   constructor(backend: HistoryBackend) {
     this.backend = backend;
@@ -99,6 +109,10 @@ export class TranscriptParser {
 
     // Sub-agent transcripts share the file; keep the chat view on the main thread.
     if (event.isSidechain === true) return { upserts: [], metaChanged };
+
+    if (event.type === 'queue-operation') {
+      return this.parseClaudeQueueOp(event, metaChanged);
+    }
     if (event.type !== 'user' && event.type !== 'assistant') {
       return { upserts: [], metaChanged };
     }
@@ -113,7 +127,12 @@ export class TranscriptParser {
       if (event.isMeta === true) return { upserts: [], metaChanged };
       const text = claudeUserText(message.content);
       if (!text) return { upserts: [], metaChanged };
-      const id = typeof event.uuid === 'string' && event.uuid ? event.uuid : `u${this.seq++}`;
+      // A dequeued prompt already rendered from its enqueue event; reuse that
+      // id so this line updates it in place instead of appearing twice.
+      const claimed = this.queuedByText.get(text);
+      if (claimed) this.queuedByText.delete(text);
+      const id = claimed
+        ?? (typeof event.uuid === 'string' && event.uuid ? event.uuid : `u${this.seq++}`);
       const msg: ChatMessage = { id, role: 'user', text, tools: [], timestamp };
       this.upsert(msg);
       this.codexToolMsgId = null;
@@ -152,6 +171,41 @@ export class TranscriptParser {
     if (!existing && !changed) return { upserts: [], metaChanged };
     if (!existing) this.upsert(msg);
     return { upserts: changed || !existing ? [msg] : [], metaChanged };
+  }
+
+  /**
+   * Prompts sent while the CLI is mid-turn go into its queue. `enqueue` carries
+   * the text, so render it right away — otherwise a prompt taken out with
+   * `remove` is invisible in chat forever while the terminal shows it running.
+   */
+  private parseClaudeQueueOp(
+    event: Record<string, unknown>,
+    metaChanged: boolean,
+  ): ParseResult {
+    const op = event.operation;
+    const text = typeof event.content === 'string' ? filterUserText(event.content) : '';
+
+    if (op !== 'enqueue') {
+      // `remove` folds the prompt into the running turn: no user line will ever
+      // arrive, so drop the claim ticket and let the queued message stand.
+      if (op === 'remove' && text) this.queuedByText.delete(text);
+      return { upserts: [], metaChanged };
+    }
+
+    if (!text || this.queuedByText.has(text)) return { upserts: [], metaChanged };
+
+    const id = `q${this.seq++}`;
+    const timestamp = typeof event.timestamp === 'string'
+      ? event.timestamp
+      : new Date().toISOString();
+    const msg: ChatMessage = { id, role: 'user', text, tools: [], timestamp };
+    this.queuedByText.set(text, id);
+    if (this.queuedByText.size > MAX_QUEUED_CLAIMS) {
+      const oldest = this.queuedByText.keys().next();
+      if (!oldest.done) this.queuedByText.delete(oldest.value);
+    }
+    this.upsert(msg);
+    return { upserts: [msg], metaChanged };
   }
 
   private applyClaudeUsage(msgId: string, usage: Record<string, unknown> | null): boolean {

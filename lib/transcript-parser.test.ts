@@ -13,6 +13,53 @@ function codexLine(type: string, payload: Record<string, unknown>): string {
 }
 
 describe('TranscriptParser (claude)', () => {
+  it('shows a prompt queued while the CLI was busy (remove never writes a user line)', () => {
+    const p = new TranscriptParser('claude');
+
+    const enq = p.parseLine(claudeLine({
+      type: 'queue-operation', operation: 'enqueue', content: '做完就直接收工吧',
+    }));
+    assert.equal(enq.upserts.length, 1, 'enqueue must surface the prompt right away');
+    assert.equal(enq.upserts[0].role, 'user');
+    assert.equal(enq.upserts[0].text, '做完就直接收工吧');
+
+    // `remove` folds it into the running turn — no user line ever follows.
+    assert.equal(p.parseLine(claudeLine({
+      type: 'queue-operation', operation: 'remove', content: '做完就直接收工吧',
+    })).upserts.length, 0);
+
+    const all = p.all();
+    assert.equal(all.length, 1);
+    assert.equal(all[0].text, '做完就直接收工吧');
+  });
+
+  it('does not double up when a queued prompt is dequeued into a real user line', () => {
+    const p = new TranscriptParser('claude');
+
+    const enq = p.parseLine(claudeLine({
+      type: 'queue-operation', operation: 'enqueue', content: '排队的那句',
+    }));
+    const queuedId = enq.upserts[0].id;
+
+    p.parseLine(claudeLine({ type: 'queue-operation', operation: 'dequeue' }));
+    const real = p.parseLine(claudeLine({
+      type: 'user', uuid: 'u-9', message: { role: 'user', content: '排队的那句' },
+    }));
+
+    assert.equal(real.upserts.length, 1);
+    assert.equal(real.upserts[0].id, queuedId, 'the real line must reclaim the queued id');
+    assert.equal(p.count(), 1, 'one prompt, one bubble');
+  });
+
+  it('ignores queue events with no usable content', () => {
+    const p = new TranscriptParser('claude');
+    assert.equal(p.parseLine(claudeLine({ type: 'queue-operation', operation: 'enqueue' })).upserts.length, 0);
+    assert.equal(p.parseLine(claudeLine({
+      type: 'queue-operation', operation: 'enqueue', content: '<command-name>/clear</command-name>',
+    })).upserts.length, 0);
+    assert.equal(p.count(), 0);
+  });
+
   it('parses user text and skips injected/meta content', () => {
     const p = new TranscriptParser('claude');
 
