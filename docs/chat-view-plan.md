@@ -1,3 +1,13 @@
+## ✅ 本计划已实施（2026-08-22 核对）
+
+2026-07-05 的实施计划，已完整落地：`components/ChatView.tsx` 及配套的
+`SessionRail.tsx` / `SessionTabs.tsx` / `SidebarHistory.tsx` / `HistoryHome.tsx` 均已就位。
+该功能此后仍在维护，最近两次为 `2026-08-14`（Codex 归档会话进历史列表）
+与 `2026-08-19`（CLI 忙时排队的输入在 chat 里永久不可见）。
+
+当前状态以代码与 README 为准。保留原貌作为设计过程记录，不再更新。
+---
+
 # Chat View + 分栏布局 — 实施计划
 
 > 计划日期：2026-07-05

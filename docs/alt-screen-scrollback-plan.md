@@ -1,3 +1,19 @@
+## ⚠️ 本计划未实施，方案已被取代（2026-08-22 补标）
+
+**本文第一行写的「决策结果：方案 C（xterm.js + overlay）」没有落地。**
+取代说明与实际走法见同批的
+[`alt-screen-scrollback-research.md`](alt-screen-scrollback-research.md) 顶部
+「结论已被取代（2026-07-29）」一节：真正做的是在 `TerminalView.tsx` 收到 PTY 数据时
+直接剥掉 alt screen 切换序列，TUI 内容落进 normal buffer，不再维护第二个 xterm 实例。
+`components/ScrollbackOverlay.tsx` 与 `packages/app/src/addons/serialize.ts` 从未创建。
+
+正文末尾 21 项未勾选的验收清单是**为方案 C 写的**，随方案一起作废，不代表待办。
+滚动相关的当前状态见 `4772b54`（tmux 历史灌入）与 `20e0fbe`（触摸滚动）。
+
+2026-07-29 标注取代时只改了 research 文档、漏了本文，故此处补标。
+保留原貌作为设计过程记录，不再更新。
+---
+
 # Alt Screen Scrollback — 实施计划
 
 > 计划日期：2026-04-15
