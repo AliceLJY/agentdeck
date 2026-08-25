@@ -122,7 +122,16 @@ export function buildBackendCommand(options: BackendCommandOptions): string[] {
     // kimi has no cwd flag — the tmux session is already spawned in `cwd`,
     // and kimi files its own sessions by working directory from there.
     const args = [options.executable];
-    if (resumeId) args.push('-S', resumeId);
+    // kimi 0.38 wants the full store-directory name ("session_<uuid>") after
+    // -S; a bare uuid gets "Session not found" and the CLI dies on the spot,
+    // which the viewer experiences as "tap the session, bounce back home".
+    // Verified 2026-08-25 on the same session both ways. history-index keeps
+    // bare uuids as ids everywhere else, so the prefix is added only here at
+    // the command line. Sessions written by kimi ≤0.29 are refused by 0.38
+    // in both spellings — that is kimi's own migration gap, not ours.
+    if (resumeId) {
+      args.push('-S', resumeId.startsWith('session_') ? resumeId : `session_${resumeId}`);
+    }
     const model = safeModel(options.model);
     if (model) args.push('-m', model);
     const mode = allowed(options.permissionMode, KIMI_PERMISSION_MODES);

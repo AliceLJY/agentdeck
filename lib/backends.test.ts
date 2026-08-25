@@ -53,6 +53,30 @@ test('builds Claude resume commands with the existing Claude CLI shape', () => {
   );
 });
 
+test('kimi resume ids get the session_ store prefix kimi 0.38 requires', () => {
+  // A bare uuid after -S makes kimi 0.38 die with "Session not found" —
+  // the phone-side symptom was "tap the session, bounce back home".
+  assert.deepEqual(
+    buildBackendCommand({
+      backend: 'kimi',
+      executable: '/Users/alice/.kimi-code/bin/kimi',
+      cwd: '/Users/alice',
+      resumeSessionId: 'f75dd826-4de9-406b-b526-1b7042eef6c0',
+    }),
+    ['/Users/alice/.kimi-code/bin/kimi', '-S', 'session_f75dd826-4de9-406b-b526-1b7042eef6c0'],
+  );
+  // Already-prefixed ids pass through untouched — no double prefix.
+  assert.deepEqual(
+    buildBackendCommand({
+      backend: 'kimi',
+      executable: 'kimi',
+      cwd: '/x',
+      resumeSessionId: 'session_022bb8e6-bcd9-4d32-9c75-a7780e3e9855',
+    }),
+    ['kimi', '-S', 'session_022bb8e6-bcd9-4d32-9c75-a7780e3e9855'],
+  );
+});
+
 test('appends allowlisted Claude session parameters', () => {
   assert.deepEqual(
     buildBackendCommand({
