@@ -1,4 +1,4 @@
-import type { HistoryBackend } from './backends';
+import { assertExhaustive, type HistoryBackend } from './backends';
 import type { ChatMessage, ToolCallInfo, TranscriptMeta } from './types';
 
 /**
@@ -79,10 +79,14 @@ export class TranscriptParser {
     if (!event || typeof event !== 'object') return EMPTY_RESULT;
 
     try {
+      // Exhaustive: agy events used to fall through to parseClaudeEvent here
+      // (the third missed wiring point of 2026-08-26) — a new backend now
+      // fails to compile instead of silently parsing as Claude.
       if (this.backend === 'codex') return this.parseCodexEvent(event);
       if (this.backend === 'kimi') return this.parseKimiEvent(event);
       if (this.backend === 'agy') return this.parseAgyEvent(event);
-      return this.parseClaudeEvent(event);
+      if (this.backend === 'claude') return this.parseClaudeEvent(event);
+      return assertExhaustive(this.backend);
     } catch {
       return EMPTY_RESULT; // format drift must never kill the stream
     }

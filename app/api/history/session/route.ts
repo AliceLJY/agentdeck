@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireApprovedApiDevice } from '@/lib/api-auth';
-import { normalizeBackend } from '@/lib/backends';
+import { assertExhaustive, normalizeBackend } from '@/lib/backends';
 import { readAgyTranscript, readClaudeTranscript, readCodexTranscript, readKimiTranscript } from '@/lib/history-index';
 
 export const runtime = 'nodejs';
@@ -22,18 +22,22 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Exhaustive on purpose — agy used to fall through to the Claude reader
+    // here (looking for agy ids under ~/.claude/projects), so the Chat pane
+    // for every agy session was an unconditional 500 dressed up as "empty".
+    // With assertExhaustive, a future backend that misses a branch stops
+    // compiling instead of repeating that.
     let transcript;
     if (backend === 'codex') {
       transcript = await readCodexTranscript({ projectId, sessionId });
     } else if (backend === 'kimi') {
       transcript = await readKimiTranscript({ projectId, sessionId });
     } else if (backend === 'agy') {
-      // agy used to fall through to the Claude reader here, which looks for
-      // agy ids under ~/.claude/projects — the Chat pane for every agy
-      // session was an unconditional 500 dressed up as "empty".
       transcript = await readAgyTranscript({ projectId, sessionId });
-    } else {
+    } else if (backend === 'claude') {
       transcript = await readClaudeTranscript({ projectId, sessionId });
+    } else {
+      assertExhaustive(backend);
     }
     return NextResponse.json(transcript);
   } catch (err) {

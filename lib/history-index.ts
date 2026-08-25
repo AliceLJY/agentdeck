@@ -416,73 +416,51 @@ export async function buildHistoryIndex(
   options: CombinedBuildOptions = {},
 ): Promise<ClaudeHistoryIndex> {
   const backend = options.backend || 'all';
-  if (backend === 'claude') {
-    return buildClaudeHistoryIndex({
-      rootDir: options.claudeRootDir,
-      limit: options.limit,
-      projectId: options.projectId,
-    });
-  }
-  if (backend === 'codex') {
-    return buildCodexHistoryIndex({
-      sessionsRootDir: options.codexSessionsRootDir,
-      archivedRootDir: options.codexArchivedRootDir,
-      indexFile: options.codexIndexFile,
-      limit: options.limit,
-      projectId: options.projectId,
-    });
-  }
-  if (backend === 'kimi') {
-    return buildKimiHistoryIndex({
-      sessionsRootDir: options.kimiSessionsRootDir,
-      indexFile: options.kimiIndexFile,
-      limit: options.limit,
-      projectId: options.projectId,
-    });
-  }
-  if (backend === 'agy') {
-    return buildAgyHistoryIndex({
-      brainRootDir: options.agyBrainRootDir,
-      lastConversationsFile: options.agyLastConversationsFile,
-      limit: options.limit,
-      projectId: options.projectId,
-    });
-  }
+  const limit = backend === 'all' ? clampLimit(options.limit) : options.limit;
 
-  const limit = clampLimit(options.limit);
-  const [claude, kimi, agy, codex] = await Promise.all([
-    buildClaudeHistoryIndex({
+  // One builder per backend, typed as a full Record on purpose: adding an id
+  // to HistoryBackend without adding it here is a compile error, and the
+  // 'all' aggregate below derives from the same table — so a new backend can
+  // no longer be wired for its own filter yet silently missing from the
+  // combined list.
+  const builders: Record<HistoryBackend, () => Promise<ClaudeHistoryIndex>> = {
+    claude: () => buildClaudeHistoryIndex({
       rootDir: options.claudeRootDir,
       limit,
       projectId: options.projectId,
     }),
-    buildKimiHistoryIndex({
-      sessionsRootDir: options.kimiSessionsRootDir,
-      indexFile: options.kimiIndexFile,
-      limit,
-      projectId: options.projectId,
-    }),
-    buildAgyHistoryIndex({
-      brainRootDir: options.agyBrainRootDir,
-      lastConversationsFile: options.agyLastConversationsFile,
-      limit,
-      projectId: options.projectId,
-    }),
-    buildCodexHistoryIndex({
+    codex: () => buildCodexHistoryIndex({
       sessionsRootDir: options.codexSessionsRootDir,
       archivedRootDir: options.codexArchivedRootDir,
       indexFile: options.codexIndexFile,
       limit,
       projectId: options.projectId,
     }),
-  ]);
+    kimi: () => buildKimiHistoryIndex({
+      sessionsRootDir: options.kimiSessionsRootDir,
+      indexFile: options.kimiIndexFile,
+      limit,
+      projectId: options.projectId,
+    }),
+    agy: () => buildAgyHistoryIndex({
+      brainRootDir: options.agyBrainRootDir,
+      lastConversationsFile: options.agyLastConversationsFile,
+      limit,
+      projectId: options.projectId,
+    }),
+  };
 
+  if (backend !== 'all') {
+    return builders[backend]();
+  }
+
+  const results = await Promise.all(Object.values(builders).map((build) => build()));
   return {
-    projects: [...claude.projects, ...kimi.projects, ...agy.projects, ...codex.projects]
+    projects: results.flatMap((r) => r.projects)
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    sessions: [...claude.sessions, ...kimi.sessions, ...agy.sessions, ...codex.sessions]
+    sessions: results.flatMap((r) => r.sessions)
       .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-      .slice(0, limit),
+      .slice(0, clampLimit(options.limit)),
   };
 }
 

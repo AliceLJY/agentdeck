@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { HistoryBackend } from './backends';
+import { assertExhaustive, type HistoryBackend } from './backends';
 import {
   agyBrainRoot,
   agyLastConversationsPath,
@@ -67,7 +67,13 @@ export async function discoverTranscript(
       roots.excludePaths,
     );
   }
-  return discoverClaude(target, roots.claudeRoot || claudeProjectsRoot(), roots.excludePaths);
+  if (target.backend === 'claude') {
+    return discoverClaude(target, roots.claudeRoot || claudeProjectsRoot(), roots.excludePaths);
+  }
+  // Not a fallback: an unhandled backend used to fall through to the Claude
+  // walker and Chat sat unclaimed forever (agy did exactly this until
+  // 2026-08-26). New backends must not compile until they discover too.
+  return assertExhaustive(target.backend);
 }
 
 /**

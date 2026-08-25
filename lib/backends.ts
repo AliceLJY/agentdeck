@@ -88,6 +88,18 @@ const BACKEND_DISPLAY: Record<HistoryBackend, BackendDisplay> = {
   },
 };
 
+/** Compile-time exhaustiveness for backend dispatch sites. Call it after
+ *  handling every member of HistoryBackend: when a new backend id is added,
+ *  every dispatch that forgot a branch stops COMPILING instead of silently
+ *  falling through to the Claude path. That silent fall-through has now bitten
+ *  three separate times in one night (route.ts, session-discovery.ts,
+ *  transcript-parser.ts — agy wired everywhere except the last mile, and
+ *  Chat just showed empty). Same idea as the Record<HistoryBackend,…>
+ *  executable table above, applied to control flow. */
+export function assertExhaustive(value: never): never {
+  throw new Error(`Unhandled backend: ${String(value)}`);
+}
+
 export function normalizeBackend(value: unknown): HistoryBackend {
   if (value === 'codex') return 'codex';
   if (value === 'kimi') return 'kimi';
