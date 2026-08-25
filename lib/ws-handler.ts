@@ -35,7 +35,7 @@ export function handleWebSocket(
   });
   let currentSessionId: string | null = null;
 
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     try {
       const msg = JSON.parse(raw.toString()) as ClientMessage;
 
@@ -56,7 +56,7 @@ export function handleWebSocket(
             sandbox: msg.sandbox,
             reasoningEffort: msg.reasoningEffort,
           });
-          terminalManager.attach(id, ws);
+          await terminalManager.attach(id, ws);
           currentSessionId = id;
 
           transcriptHub.track(id, {
@@ -83,25 +83,17 @@ export function handleWebSocket(
             terminalManager.detach(currentSessionId, ws);
           }
 
-          terminalManager.attach(msg.sessionId, ws, msg.streamOutput !== false);
+          // The attaching client's geometry rides along INTO attach() so the
+          // window is resized before history is captured. This used to be a
+          // separate resize() call after the attach — history then arrived
+          // laid out for the previous client's width, which is where the
+          // "different ghosts on every refresh" came from (see attach()).
+          const dims = (typeof msg.cols === 'number' && typeof msg.rows === 'number'
+            && msg.cols > 0 && msg.rows > 0)
+            ? { cols: msg.cols, rows: msg.rows }
+            : undefined;
+          await terminalManager.attach(msg.sessionId, ws, msg.streamOutput !== false, dims);
           currentSessionId = msg.sessionId;
-
-          // Adopt the attaching client's geometry. The tmux window otherwise
-          // keeps whatever size it was created with, which is how a session
-          // started on a desktop ends up rendering at desktop width on a
-          // phone — the CLI wraps and repositions against a grid the viewer
-          // cannot see. Best-effort: a failure here must not fail the attach.
-          if (typeof msg.cols === 'number' && typeof msg.rows === 'number'
-            && msg.cols > 0 && msg.rows > 0) {
-            try {
-              terminalManager.resize(msg.sessionId, msg.cols, msg.rows, ws);
-            } catch (err) {
-              console.warn(
-                `[agentdeck] resize on attach failed for ${msg.sessionId}:`,
-                err instanceof Error ? err.message : err,
-              );
-            }
-          }
 
           console.log(`[agentdeck] WS: attached to session ${msg.sessionId}`);
           break;
@@ -150,7 +142,7 @@ export function handleWebSocket(
           if (currentSessionId) {
             terminalManager.detach(currentSessionId, ws);
           }
-          terminalManager.attach(msg.sessionId, ws, false);
+          await terminalManager.attach(msg.sessionId, ws, false);
           currentSessionId = msg.sessionId;
           transcriptHub.attachChat(ws, msg.sessionId);
           break;

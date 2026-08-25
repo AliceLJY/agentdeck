@@ -28,6 +28,12 @@ import {
 const TMUX_SOCKET = 'ccrt';
 const TMUX_PREFIX = 'ccrt';
 
+/** How long attach() waits after resizing for the CLI to repaint at the new
+ *  width before capturing history and replaying the ring buffer. Claude Code
+ *  (and codex/kimi/agy) start their SIGWINCH repaint well under this; going
+ *  much higher only delays first paint on every attach. */
+const REPAINT_GRACE_MS = 150;
+
 /** Executable lookup order per backend, first existing path wins;
  *  `findExecutable` falls back to `which <backend>` when none of them exist.
  *
@@ -298,7 +304,12 @@ export class TerminalManager {
     return this.toSessionInfo(session);
   }
 
-  attach(sessionId: string, ws: WebSocket, streamOutput = true): void {
+  async attach(
+    sessionId: string,
+    ws: WebSocket,
+    streamOutput = true,
+    dims?: { cols: number; rows: number },
+  ): Promise<void> {
     const session = this.getSession(sessionId);
 
     // If another client already owns this session, tell it that it has been
@@ -310,10 +321,34 @@ export class TerminalManager {
 
     // Lazy PTY: spawn bridge if not yet connected (recovered session)
     if (!session.pty) {
-      const ptyProcess = this.spawnBridge(session.tmuxName, DEFAULT_COLS, DEFAULT_ROWS);
+      const ptyProcess = this.spawnBridge(
+        session.tmuxName, dims?.cols ?? DEFAULT_COLS, dims?.rows ?? DEFAULT_ROWS,
+      );
       session.pty = ptyProcess;
       this.setupPtyHandlers(session);
       console.log(`[agentdeck] Spawned PTY bridge for recovered session: ${sessionId}`);
+    }
+
+    // Adopt the attaching client's geometry BEFORE capturing anything. Order
+    // matters, and it used to be the other way around — history was captured
+    // at the previous client's width and only then was the window resized,
+    // which is exactly why every refresh on a phone painted a different set
+    // of ghosts. tmux reflows its scrollback on resize-window, so a capture
+    // taken after it is laid out for the width the viewer actually has.
+    if (dims && dims.cols > 0 && dims.rows > 0) {
+      this.applyDims(session, dims.cols, dims.rows);
+      if (streamOutput) {
+        // The ring buffer holds up to 5MB of raw PTY stream — repaint frames
+        // positioned against whatever width the session had before. Replaying
+        // those on a narrower xterm is the ghost pile itself, and unlike the
+        // tmux grid they can never be reflowed. Drop them: everything they
+        // ever painted is already in the scrollback the capture below carries.
+        // Then give the CLI one beat to repaint at the new width (SIGWINCH),
+        // so the buffer refills with frames laid out for THIS viewer — that
+        // replay lands with exact cursor state, no guessing.
+        session.buffer.clear();
+        await new Promise((resolve) => setTimeout(resolve, REPAINT_GRACE_MS));
+      }
     }
 
     // Terminal views receive the raw PTY stream (including replay). Chat and
@@ -323,8 +358,12 @@ export class TerminalManager {
       // Scrollback first (tmux holds it — see captureTmuxHistory), then the
       // live screen from the ring buffer. Sent as two messages on purpose: the
       // history is a one-shot snapshot taken now, while the buffer keeps
-      // replaying whatever has streamed since.
-      const history = this.captureTmuxHistory(session.tmuxName);
+      // replaying whatever has streamed since. If the CLI never repainted
+      // during the grace period (a plain shell ignoring SIGWINCH), the buffer
+      // is still empty — let the capture carry the visible screen instead so
+      // the viewer does not land on a blank viewport.
+      const includeVisible = session.buffer.size === 0;
+      const history = this.captureTmuxHistory(session.tmuxName, 1000, includeVisible);
       if (history.length > 0) {
         ws.send(JSON.stringify({ type: 'output', data: history }));
       }
@@ -372,12 +411,19 @@ export class TerminalManager {
   resize(sessionId: string, cols: number, rows: number, ws: WebSocket): void {
     const session = this.getSession(sessionId);
     this.assertOwner(session, ws);
+    this.applyDims(session, cols, rows);
+    session.lastActivity = Date.now();
+  }
+
+  /** Resize both halves of the pipeline — the PTY bridge and the tmux window
+   *  behind it. Shared by resize() (owner-checked) and attach() (pre-ownership:
+   *  the attaching client is about to become owner, so the check would reject
+   *  the one resize that matters most). */
+  private applyDims(session: TerminalSession, cols: number, rows: number): void {
     if (session.pty) {
       session.pty.resize(cols, rows);
     }
-    // Also resize tmux window so it matches
     this.tmuxExecSafe(['resize-window', '-t', session.tmuxName, '-x', String(cols), '-y', String(rows)]);
-    session.lastActivity = Date.now();
   }
 
   kill(sessionId: string, ws: WebSocket): void {
@@ -434,14 +480,18 @@ export class TerminalManager {
    * `-e` keeps the colours, `-J` rejoins wrapped lines, and `-E -1` stops one
    * line short of the visible screen — the ring-buffer replay that follows this
    * already carries that screen, and without the cutoff every attach would show
-   * it twice.
+   * it twice. When the ring buffer has nothing to replay (cleared on attach and
+   * the CLI did not repaint within the grace period — e.g. a plain shell that
+   * ignores SIGWINCH), pass includeVisible to let the capture carry the screen
+   * itself, or the viewer would land on an empty viewport.
    */
-  private captureTmuxHistory(tmuxName: string, lines = 1000): string {
+  private captureTmuxHistory(tmuxName: string, lines = 1000, includeVisible = false): string {
     try {
+      const endArgs = includeVisible ? [] : ['-E', '-1'];
       const out = execFileSync(
         this.tmuxPath,
         ['-L', TMUX_SOCKET, 'capture-pane', '-p', '-e', '-J',
-          '-S', `-${lines}`, '-E', '-1', '-t', tmuxName],
+          '-S', `-${lines}`, ...endArgs, '-t', tmuxName],
         { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: 3000 },
       );
       const trimmed = out.replace(/\s+$/, '');
