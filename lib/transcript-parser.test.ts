@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { TranscriptParser, summarizeToolInput, MAX_TRANSCRIPT_MESSAGES } from './transcript-parser';
+import { TranscriptParser, extractAgyUserText, summarizeToolInput, MAX_TRANSCRIPT_MESSAGES } from './transcript-parser';
 
 const ts = '2026-07-05T10:00:00.000Z';
 
@@ -286,5 +286,66 @@ describe('TranscriptParser (kimi)', () => {
     assert.equal(p.all().filter((m) => m.role === 'assistant').length, 2);
     assert.equal(p.meta.totalOutTokens, 42);
     assert.equal(p.meta.contextTokens, 105);
+  });
+});
+
+describe('TranscriptParser (agy)', () => {
+  function agyLine(extra: Record<string, unknown>): string {
+    return JSON.stringify({ step_index: 0, status: 'DONE', created_at: ts, ...extra });
+  }
+
+  it('extracts the wrapped user request and drops the metadata block', () => {
+    const p = new TranscriptParser('agy');
+    const r = p.parseLine(agyLine({
+      source: 'USER_EXPLICIT', type: 'USER_INPUT',
+      content: '<USER_REQUEST>\n你好\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nThe current working directory is…\n</ADDITIONAL_METADATA>',
+    }));
+    assert.equal(r.upserts.length, 1);
+    assert.equal(r.upserts[0].role, 'user');
+    // The old trailing-tag strip left "</USER_REQUEST> <ADDITIONAL_METADATA>…"
+    // in every message and session title — the whole point of extraction.
+    assert.equal(r.upserts[0].text, '你好');
+    assert.equal(r.upserts[0].timestamp, ts);
+  });
+
+  it('keeps PLANNER_RESPONSE with content, drops the working-only ones and scaffolding', () => {
+    const p = new TranscriptParser('agy');
+    assert.equal(p.parseLine(agyLine({ source: 'SYSTEM', type: 'CHECKPOINT', content: '{{ CHECKPOINT 0 }}' })).upserts.length, 0);
+    assert.equal(p.parseLine(agyLine({ source: 'SYSTEM', type: 'SYSTEM_MESSAGE', content: 'not actually sent' })).upserts.length, 0);
+    assert.equal(p.parseLine(agyLine({ source: 'MODEL', type: 'PLANNER_RESPONSE', content: '' })).upserts.length, 0);
+    assert.equal(p.parseLine(agyLine({ source: 'MODEL', type: 'GENERIC', content: 'Created At: …' })).upserts.length, 0);
+
+    const reply = p.parseLine(agyLine({ source: 'MODEL', type: 'PLANNER_RESPONSE', content: '你好呀！' }));
+    assert.equal(reply.upserts.length, 1);
+    assert.equal(reply.upserts[0].role, 'assistant');
+    assert.equal(reply.upserts[0].text, '你好呀！');
+    assert.equal(p.all().length, 1);
+  });
+
+  it('folds consecutive tool steps into one message and strips the timestamp header', () => {
+    const p = new TranscriptParser('agy');
+    const first = p.parseLine(agyLine({
+      source: 'MODEL', type: 'RUN_COMMAND',
+      content: 'Created At: 2026-08-25T10:00:00+08:00\nCompleted At: 2026-08-25T10:00:01+08:00\nThe command exited with code 0',
+    }));
+    assert.equal(first.upserts[0].tools[0].name, 'RUN_COMMAND');
+    assert.equal(first.upserts[0].tools[0].summary, 'The command exited with code 0');
+
+    const second = p.parseLine(agyLine({
+      source: 'MODEL', type: 'VIEW_FILE',
+      content: 'Created At: 2026-08-25T10:00:02+08:00\nFile Path: `file:///tmp/x`',
+    }));
+    assert.equal(second.upserts[0].tools.length, 2, 'consecutive tool steps fold into one message');
+
+    // A reply closes the fold; the next tool step starts a fresh message.
+    p.parseLine(agyLine({ source: 'MODEL', type: 'PLANNER_RESPONSE', content: '弄好了' }));
+    p.parseLine(agyLine({ source: 'MODEL', type: 'SEARCH_WEB', content: 'The search for x returned 3 results' }));
+    assert.equal(p.all().length, 3);
+  });
+
+  it('extractAgyUserText falls back sanely on unwrapped and half-wrapped content', () => {
+    assert.equal(extractAgyUserText('plain question'), 'plain question');
+    assert.equal(extractAgyUserText('<USER_REQUEST>\nno close tag\n<ADDITIONAL_METADATA>\nstuff'), 'no close tag');
+    assert.equal(extractAgyUserText(''), '');
   });
 });

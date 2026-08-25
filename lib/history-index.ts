@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import type { HistoryBackend, HistoryBackendFilter } from './backends';
+import { AGY_SKIP_TYPES, AGY_TOOL_TYPES, extractAgyUserText } from './transcript-parser';
 
 export interface ClaudeHistorySession {
   backend: HistoryBackend;
@@ -245,30 +246,14 @@ async function listAgySessionCandidates(
   return candidates;
 }
 
-/**
- * transcript.jsonl line shape (verified 2026-07-30 across 27 sessions):
- *   { step_index, source, type, status, created_at, content?, thinking?, tool_calls? }
- * source ∈ MODEL | SYSTEM | USER_EXPLICIT
- * The assistant's actual reply is a PLANNER_RESPONSE that HAS `content`
- * (71 of 291 in the sample); the rest carry only `thinking` / `tool_calls`
- * and are the model working, not talking.
- */
-const AGY_TOOL_TYPES = new Set([
-  'RUN_COMMAND', 'VIEW_FILE', 'CODE_ACTION', 'SEARCH_WEB',
-  'GENERATE_IMAGE', 'LIST_DIRECTORY', 'INVOKE_SUBAGENT', 'ASK_QUESTION',
-]);
-// System scaffolding the user never wrote and never sees — dropping these is
-// what keeps the transcript readable.
-const AGY_SKIP_TYPES = new Set([
-  'EPHEMERAL_MESSAGE', 'CONVERSATION_HISTORY', 'CHECKPOINT', 'SYSTEM_MESSAGE',
-]);
-
-function stripUserRequestTag(text: string): string {
-  return text
-    .replace(/^\s*<USER_REQUEST>\s*/i, '')
-    .replace(/\s*<\/USER_REQUEST>\s*$/i, '')
-    .trim();
-}
+// transcript.jsonl line shape (verified 2026-07-30 across 27 sessions):
+//   { step_index, source, type, status, created_at, content?, thinking?, tool_calls? }
+// source ∈ MODEL | SYSTEM | USER_EXPLICIT
+// The assistant's actual reply is a PLANNER_RESPONSE that HAS `content`
+// (71 of 291 in the sample); the rest carry only `thinking` / `tool_calls`
+// and are the model working, not talking.
+// Skip/tool sets and the USER_REQUEST extractor live in transcript-parser.ts,
+// shared with the live Chat reader so the two cannot drift.
 
 async function parseAgySessionWithMessages(
   candidate: AgySessionCandidate,
@@ -312,7 +297,7 @@ async function parseAgySessionWithMessages(
     const content = typeof record.content === 'string' ? record.content : '';
 
     if (type === 'USER_INPUT' || record.source === 'USER_EXPLICIT') {
-      const text = normalizeText(stripUserRequestTag(content));
+      const text = normalizeText(extractAgyUserText(content));
       if (!text) continue;
       messages.push({
         id: `agy-${messages.length}`,

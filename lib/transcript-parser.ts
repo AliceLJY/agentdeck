@@ -41,6 +41,8 @@ export class TranscriptParser {
   private outByMsg = new Map<string, number>();
   /** Kimi: id of the assistant message the current step is streaming into. */
   private kimiStepMsgId: string | null = null;
+  /** agy: id of the trailing tool-only assistant message to fold tool steps into. */
+  private agyToolMsgId: string | null = null;
   /**
    * Claude: prompts typed while the CLI was busy, keyed by text → the id we
    * showed them under. A queued prompt taken out with `remove` is folded into
@@ -79,6 +81,7 @@ export class TranscriptParser {
     try {
       if (this.backend === 'codex') return this.parseCodexEvent(event);
       if (this.backend === 'kimi') return this.parseKimiEvent(event);
+      if (this.backend === 'agy') return this.parseAgyEvent(event);
       return this.parseClaudeEvent(event);
     } catch {
       return EMPTY_RESULT; // format drift must never kill the stream
@@ -402,6 +405,60 @@ export class TranscriptParser {
     return msg;
   }
 
+  // ─── agy ───
+
+  /**
+   * agy's transcript.jsonl (brain/<id>/.system_generated/logs/) writes one
+   * step per line: { step_index, source, type, status, created_at, content }.
+   * Same line shape history-index.ts parses for the history view — the skip
+   * and tool-type sets are shared from here so the two readers cannot drift.
+   * The assistant's actual reply is a PLANNER_RESPONSE that HAS content; the
+   * ones without are the model working, not talking. Tool steps are folded
+   * into one tool-only assistant message the way Codex function_calls are.
+   */
+  private parseAgyEvent(event: Record<string, unknown>): ParseResult {
+    const type = typeof event.type === 'string' ? event.type : '';
+    if (AGY_SKIP_TYPES.has(type)) return EMPTY_RESULT;
+
+    const timestamp = typeof event.created_at === 'string' && event.created_at
+      ? event.created_at
+      : new Date().toISOString();
+    const content = typeof event.content === 'string' ? event.content : '';
+
+    if (type === 'USER_INPUT' || event.source === 'USER_EXPLICIT') {
+      const text = extractAgyUserText(content);
+      if (!text) return EMPTY_RESULT;
+      const msg: ChatMessage = { id: `u${this.seq++}`, role: 'user', text, tools: [], timestamp };
+      this.upsert(msg);
+      this.agyToolMsgId = null;
+      return { upserts: [msg], metaChanged: false };
+    }
+
+    if (type === 'PLANNER_RESPONSE' || type === 'FINISH' || type === 'ERROR_MESSAGE') {
+      const text = content.trim();
+      if (!text) return EMPTY_RESULT; // thinking/tool_calls only — not talking
+      const msg: ChatMessage = { id: `a${this.seq++}`, role: 'assistant', text, tools: [], timestamp };
+      this.upsert(msg);
+      this.agyToolMsgId = null;
+      return { upserts: [msg], metaChanged: false };
+    }
+
+    if (AGY_TOOL_TYPES.has(type)) {
+      const summary = agyToolSummary(content);
+      if (!summary) return EMPTY_RESULT;
+      let msg = this.agyToolMsgId ? this.messages.get(this.agyToolMsgId) : undefined;
+      if (!msg) {
+        msg = { id: `t${this.seq++}`, role: 'assistant', text: '', tools: [], timestamp };
+        this.upsert(msg);
+        this.agyToolMsgId = msg.id;
+      }
+      msg.tools.push({ id: `y${this.seq++}`, name: type, summary });
+      return { upserts: [msg], metaChanged: false };
+    }
+
+    return EMPTY_RESULT;
+  }
+
   // ─── Shared ───
 
   private upsert(msg: ChatMessage): void {
@@ -553,6 +610,44 @@ function toToolInfo(id: unknown, name: unknown, input: unknown): ToolCallInfo {
 function truncate(text: string, max: number): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+// ─── agy helpers (shared with history-index.ts so the two readers agree) ───
+
+/** System scaffolding the user never wrote and never sees. */
+export const AGY_SKIP_TYPES = new Set([
+  'EPHEMERAL_MESSAGE', 'CONVERSATION_HISTORY', 'CHECKPOINT', 'SYSTEM_MESSAGE',
+]);
+
+export const AGY_TOOL_TYPES = new Set([
+  'RUN_COMMAND', 'VIEW_FILE', 'CODE_ACTION', 'SEARCH_WEB',
+  'GENERATE_IMAGE', 'LIST_DIRECTORY', 'INVOKE_SUBAGENT', 'ASK_QUESTION',
+]);
+
+/**
+ * agy wraps the typed prompt as `<USER_REQUEST>…</USER_REQUEST>` and appends
+ * an `<ADDITIONAL_METADATA>…` block INSIDE the same content string. Stripping
+ * only a trailing close tag missed the metadata entirely, so every agy user
+ * message (and the session titles derived from it) carried
+ * "</USER_REQUEST> <ADDITIONAL_METADATA> The current…" — extract the inner
+ * request instead, and cut the metadata block wherever it starts.
+ */
+export function extractAgyUserText(content: string): string {
+  const wrapped = content.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i);
+  let text = wrapped ? wrapped[1] : content;
+  text = text.replace(/^\s*<USER_REQUEST>\s*/i, '');
+  text = text.replace(/<ADDITIONAL_METADATA>[\s\S]*$/i, '');
+  return text.trim();
+}
+
+/** Tool-step content opens with Created At / Completed At stamps — drop them
+ *  so the one-line summary starts at the actual payload. */
+function agyToolSummary(content: string): string {
+  const stripped = content
+    .replace(/^Created At: [^\n]*\n?/, '')
+    .replace(/^Completed At: [^\n]*\n?/, '')
+    .trim();
+  return truncate(stripped, MAX_SUMMARY);
 }
 
 /** kimi message content is a list of `{ type: 'text', text }` blocks. */
