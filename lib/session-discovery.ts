@@ -234,6 +234,20 @@ async function discoverCodex(
   root: string,
   exclude?: ReadonlySet<string>,
 ): Promise<string | null> {
+  // Resuming: the id is in the rollout's filename, so find it directly —
+  // anywhere in the date tree, because the session being resumed may be days
+  // old while the heuristic below only scans today/yesterday, and with no
+  // freshness check, because the rollout keeps its old mtime until the user
+  // says something new. Same lesson discoverClaude/discoverKimi/discoverAgy
+  // already encode; codex was the last reader still gating resume on mtime,
+  // so its Chat sat unclaimed on every resume of an older session.
+  if (target.resumeSessionId) {
+    const direct = await findCodexRolloutById(root, target.resumeSessionId, exclude);
+    if (direct) return direct;
+    // Missing or already owned: fall through — a resumed codex can still
+    // mint a fresh rollout.
+  }
+
   // Rollouts live under YYYY/MM/DD (local time); include the previous day to
   // survive spawns that straddle midnight.
   const dayDirs = [target.spawnTimeMs, target.spawnTimeMs - 24 * 3600 * 1000]
@@ -280,6 +294,51 @@ async function discoverCodex(
   }
 
   return best?.filePath || null;
+}
+
+/** Walk root's YYYY/MM/DD tree for a rollout whose filename carries the
+ *  session id. Newest days first: the session being resumed is usually
+ *  recent, and the tree grows one directory per day. */
+async function findCodexRolloutById(
+  root: string,
+  sessionId: string,
+  exclude?: ReadonlySet<string>,
+): Promise<string | null> {
+  const subdirsNewestFirst = async (dir: string): Promise<string[]> => {
+    try {
+      return (await readdir(dir, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort()
+        .reverse();
+    } catch {
+      return [];
+    }
+  };
+
+  for (const year of await subdirsNewestFirst(root)) {
+    const yearDir = path.join(root, year);
+    for (const month of await subdirsNewestFirst(yearDir)) {
+      const monthDir = path.join(yearDir, month);
+      for (const day of await subdirsNewestFirst(monthDir)) {
+        const dayPath = path.join(monthDir, day);
+        let entries;
+        try {
+          entries = await readdir(dayPath, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+          if (!entry.name.includes(sessionId)) continue;
+          const filePath = path.join(dayPath, entry.name);
+          if (exclude?.has(filePath)) continue;
+          return filePath;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 function dayDir(root: string, ms: number): string {

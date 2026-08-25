@@ -198,6 +198,42 @@ describe('discoverTranscript (codex)', () => {
     assert.equal(found, target);
   });
 
+  it('claims a resumed rollout directly: old mtime, old date dir, no freshness gate', async () => {
+    const cwd = '/Users/alice/proj';
+    const resumeId = 'aaaa1111-2222-3333-4444-555566667777';
+    const meta = JSON.stringify({ type: 'session_meta', payload: { id: resumeId, cwd } }) + '\n';
+
+    // The rollout lives three days back — outside the today/yesterday windows
+    // the fresh-spawn heuristic scans — and its mtime predates the spawn,
+    // which the old resumedActive gate read as "not ours".
+    const d = new Date(Date.now() - 3 * 24 * 3600 * 1000);
+    const oldDay = path.join(
+      work,
+      String(d.getFullYear()),
+      String(d.getMonth() + 1).padStart(2, '0'),
+      String(d.getDate()).padStart(2, '0'),
+    );
+    const rollout = path.join(oldDay, `rollout-old-${resumeId}.jsonl`);
+    await touch(rollout, meta);
+    await backdate(rollout, Date.now() - 3 * 24 * 3600 * 1000);
+
+    const found = await discoverTranscript(
+      { backend: 'codex', cwd, spawnTimeMs: Date.now(), resumeSessionId: resumeId },
+      { codexRoot: work },
+    );
+    assert.equal(found, rollout);
+
+    // Already owned by another session: never double-claim; with no fresh
+    // rollout around either, discovery keeps waiting.
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'codex', cwd, spawnTimeMs: Date.now(), resumeSessionId: resumeId },
+        { codexRoot: work, excludePaths: new Set([rollout]) },
+      ),
+      null,
+    );
+  });
+
   it('ignores stale rollouts from earlier runs', async () => {
     const cwd = '/Users/alice/proj';
     const meta = JSON.stringify({ type: 'session_meta', payload: { id: 'x', cwd } }) + '\n';

@@ -61,12 +61,20 @@ export default function TerminalKeyBar({ onInput, visible }: TerminalKeyBarProps
   if (!isTouchDevice || !visible) return null;
 
   return (
+    // In normal flow on purpose — this bar used to be `fixed bottom-0`, which
+    // floats OVER the terminal: the flex column doesn't know it exists, the
+    // terminal keeps the full height, and xterm's fit() hands out ~3 rows that
+    // are physically behind the bar. Kimi/Codex/Agy draw their input box on
+    // those exact rows (bottom of the TUI screen), so the box sat invisible
+    // while typing still worked; Claude's classic renderer keeps its prompt in
+    // the content flow, which is why CC alone looked fine. As a flex child the
+    // bar takes real height, the terminal shrinks, and the row count is honest.
     <div
-      className="fixed left-0 right-0 z-50 flex items-center gap-1 px-2 py-1.5
+      className="shrink-0 flex items-center gap-1 px-2 py-1.5
         bg-gray-100/95 dark:bg-gray-800/95 backdrop-blur-sm
         border-t border-gray-200 dark:border-gray-700
         pb-[max(0.375rem,env(safe-area-inset-bottom))]"
-      style={{ bottom: 0, userSelect: 'none', WebkitUserSelect: 'none' }}
+      style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
     >
       {/* Named keys */}
       {Object.entries(KEYS).map(([label, seq]) => (
