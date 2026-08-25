@@ -214,3 +214,64 @@ describe('discoverTranscript (codex)', () => {
     );
   });
 });
+
+describe('discoverTranscript (kimi)', () => {
+  it('resume claims the indexed wire log even when its mtime predates spawn', async () => {
+    // A resumed session's wire log keeps its old mtime until the user talks;
+    // the freshness filter used to read that as "not ours" and Chat sat
+    // unclaimed on every kimi resume.
+    const sessionDir = path.join(work, 'wd_x_hash', 'session_11111111-2222-3333-4444-555555555555');
+    const wire = path.join(sessionDir, 'agents', 'main', 'wire.jsonl');
+    await touch(wire, '{}\n');
+    await backdate(wire, Date.now() - 3600_000);
+    const indexFile = path.join(work, 'session_index.jsonl');
+    await touch(indexFile, JSON.stringify({
+      sessionId: 'session_11111111-2222-3333-4444-555555555555',
+      sessionDir,
+      workDir: '/x',
+    }) + '\n');
+
+    // Bare uuid (what the UI carries around) must match the prefixed index id.
+    assert.equal(
+      await discoverTranscript(
+        {
+          backend: 'kimi', cwd: '/x', spawnTimeMs: Date.now(),
+          resumeSessionId: '11111111-2222-3333-4444-555555555555',
+        },
+        { kimiIndexFile: indexFile },
+      ),
+      wire,
+    );
+  });
+});
+
+describe('discoverTranscript (agy)', () => {
+  it('resume claims brain/<id> directly; fresh sessions wait out the stale map', async () => {
+    const brain = path.join(work, 'brain');
+    const id = 'conv-aaaa';
+    const transcript = path.join(brain, id, '.system_generated', 'logs', 'transcript.jsonl');
+    await touch(transcript, '{}\n');
+    await backdate(transcript, Date.now() - 3600_000);
+    const lastConv = path.join(work, 'last_conversations.json');
+    await touch(lastConv, JSON.stringify({ '/x': id }));
+
+    // Resume: id known, old mtime is fine.
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'agy', cwd: '/x', spawnTimeMs: Date.now(), resumeSessionId: id },
+        { agyBrainRoot: brain, agyLastConvFile: lastConv },
+      ),
+      transcript,
+    );
+
+    // Fresh session: the map still points at the PREVIOUS conversation
+    // (old mtime) — must not claim it, so the hub keeps retrying instead.
+    assert.equal(
+      await discoverTranscript(
+        { backend: 'agy', cwd: '/x', spawnTimeMs: Date.now() },
+        { agyBrainRoot: brain, agyLastConvFile: lastConv },
+      ),
+      null,
+    );
+  });
+});

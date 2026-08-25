@@ -3,6 +3,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { HistoryBackend } from './backends';
 import {
+  agyBrainRoot,
+  agyLastConversationsPath,
+  agyTranscriptPath,
   claudeProjectsRoot,
   codexSessionsRoot,
   kimiSessionIndexPath,
@@ -35,6 +38,8 @@ export interface DiscoveryRoots {
   claudeRoot?: string;
   codexRoot?: string;
   kimiIndexFile?: string;
+  agyBrainRoot?: string;
+  agyLastConvFile?: string;
   /** Transcripts already claimed by other sessions — never claim them again.
    * Without this, several sessions spawned in the same cwd race for the same
    * file (the newest one wins them all). */
@@ -53,6 +58,14 @@ export async function discoverTranscript(
   }
   if (target.backend === 'kimi') {
     return discoverKimi(target, roots.kimiIndexFile || kimiSessionIndexPath(), roots.excludePaths);
+  }
+  if (target.backend === 'agy') {
+    return discoverAgy(
+      target,
+      roots.agyBrainRoot || agyBrainRoot(),
+      roots.agyLastConvFile || agyLastConversationsPath(),
+      roots.excludePaths,
+    );
   }
   return discoverClaude(target, roots.claudeRoot || claudeProjectsRoot(), roots.excludePaths);
 }
@@ -75,6 +88,15 @@ async function discoverKimi(
     return null;
   }
 
+  // Resuming: the id names the session, so read it straight off the index —
+  // and skip the freshness filter below entirely. A resumed session's wire
+  // log keeps its old mtime until the user says something new, which the
+  // mtime check would read as "not ours": Chat then sat unclaimed forever on
+  // every kimi resume while the terminal talked to the session just fine.
+  // Same lesson discoverClaude() already encodes for --resume; kimi's id may
+  // arrive bare or with the store's "session_" prefix, so match both.
+  const resumeId = target.resumeSessionId || null;
+
   let best: { filePath: string; mtimeMs: number } | null = null;
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
@@ -84,7 +106,14 @@ async function discoverKimi(
     } catch {
       continue;
     }
-    if (typeof entry.sessionDir !== 'string' || entry.workDir !== target.cwd) continue;
+    if (typeof entry.sessionDir !== 'string') continue;
+    const entryId = typeof entry.sessionId === 'string' ? entry.sessionId : '';
+    if (resumeId && (entryId === resumeId || entryId === `session_${resumeId}`)) {
+      const filePath = path.join(entry.sessionDir, 'agents', 'main', 'wire.jsonl');
+      if (!exclude?.has(filePath) && existsSync(filePath)) return filePath;
+      continue;
+    }
+    if (entry.workDir !== target.cwd) continue;
     const filePath = path.join(entry.sessionDir, 'agents', 'main', 'wire.jsonl');
     if (exclude?.has(filePath)) continue;
     let stats;
@@ -97,6 +126,49 @@ async function discoverKimi(
     if (!best || stats.mtimeMs > best.mtimeMs) best = { filePath, mtimeMs: stats.mtimeMs };
   }
   return best?.filePath || null;
+}
+
+/**
+ * agy names its conversation dirs by id under brain/, so resuming reads the
+ * transcript path straight from the id. A fresh session has no id we know —
+ * `cache/last_conversations.json` maps cwd -> the MOST RECENT conversation
+ * per cwd, which at spawn time still points at the previous session, so the
+ * freshness check below keeps retrying (the hub polls) until agy creates the
+ * new conversation on the first prompt and the map catches up.
+ */
+async function discoverAgy(
+  target: DiscoveryTarget,
+  brainRoot: string,
+  lastConvFile: string,
+  exclude?: ReadonlySet<string>,
+): Promise<string | null> {
+  if (target.resumeSessionId) {
+    const filePath = agyTranscriptPath(brainRoot, target.resumeSessionId);
+    if (!exclude?.has(filePath) && existsSync(filePath)) return filePath;
+    // Fall through: a resumed agy can still mint a fresh conversation.
+  }
+
+  let mapped: string | null = null;
+  try {
+    const parsed = JSON.parse(await readFile(lastConvFile, 'utf-8')) as Record<string, unknown>;
+    const id = parsed[target.cwd];
+    if (typeof id === 'string' && id) mapped = id;
+  } catch {
+    return null; // no map yet — retry later
+  }
+  if (!mapped) return null;
+
+  const filePath = agyTranscriptPath(brainRoot, mapped);
+  if (exclude?.has(filePath)) return null;
+  let stats;
+  try {
+    stats = await stat(filePath);
+  } catch {
+    return null;
+  }
+  // Older than our spawn → that's the PREVIOUS conversation in this cwd.
+  if (stats.mtimeMs + GRACE_MS < target.spawnTimeMs) return null;
+  return filePath;
 }
 
 async function discoverClaude(

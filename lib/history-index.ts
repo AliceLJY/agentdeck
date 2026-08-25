@@ -946,6 +946,25 @@ export async function readKimiTranscript(options: {
   return parseKimiSessionWithMessages(candidate);
 }
 
+export async function readAgyTranscript(options: {
+  brainRoot?: string;
+  lastConvFile?: string;
+  projectId: string;
+  sessionId: string;
+}): Promise<ClaudeTranscript> {
+  assertSafeSegment(options.projectId, 'projectId');
+  assertSafeSegment(options.sessionId, 'sessionId');
+
+  const brainRoot = options.brainRoot || agyBrainRoot();
+  const lastConvFile = options.lastConvFile || agyLastConversationsPath();
+  const candidates = await listAgySessionCandidates(brainRoot, lastConvFile);
+  const candidate = candidates.find((item) => item.sessionId === options.sessionId);
+  if (!candidate) {
+    throw new Error(`Agy session not found: ${options.sessionId}`);
+  }
+  return parseAgySessionWithMessages(candidate);
+}
+
 export async function readCodexTranscript(options: {
   sessionsRootDir?: string;
   archivedRootDir?: string;
