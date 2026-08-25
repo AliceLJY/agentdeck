@@ -1,13 +1,14 @@
 import { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import type { TerminalManager } from './terminal-manager';
+import { ResumeHeldError } from './terminal-manager';
 import type { TranscriptHub } from './transcript-hub';
 import type { ClientMessage } from './types';
 import { DEFAULT_COLS, DEFAULT_ROWS } from './types';
 
 type TerminalManagerPort = Pick<
   TerminalManager,
-  'attach' | 'create' | 'detach' | 'kill' | 'list' | 'resize' | 'write'
+  'attach' | 'clearHistory' | 'create' | 'detach' | 'kill' | 'list' | 'resize' | 'write'
 >;
 
 type TranscriptHubPort = Pick<
@@ -45,17 +46,30 @@ export function handleWebSocket(
           const cols = msg.cols || DEFAULT_COLS;
           const rows = msg.rows || DEFAULT_ROWS;
 
-          const info = terminalManager.create(id, cols, rows, {
-            backend: msg.backend,
-            cwd: msg.cwd,
-            resumeSessionId: msg.resumeSessionId,
-            title: msg.title,
-            model: msg.model,
-            permissionMode: msg.permissionMode,
-            effort: msg.effort,
-            sandbox: msg.sandbox,
-            reasoningEffort: msg.reasoningEffort,
-          });
+          let info;
+          try {
+            info = terminalManager.create(id, cols, rows, {
+              backend: msg.backend,
+              cwd: msg.cwd,
+              resumeSessionId: msg.resumeSessionId,
+              takeover: msg.takeover,
+              title: msg.title,
+              model: msg.model,
+              permissionMode: msg.permissionMode,
+              effort: msg.effort,
+              sandbox: msg.sandbox,
+              reasoningEffort: msg.reasoningEffort,
+            });
+          } catch (err) {
+            // Held resume target → consent prompt, not an error toast. The
+            // client re-sends the same create with takeover: true if the
+            // viewer agrees to kick the holder off.
+            if (err instanceof ResumeHeldError) {
+              send(ws, { type: 'resume_held', holderPid: Number(err.holderPid) || 0 });
+              break;
+            }
+            throw err;
+          }
           await terminalManager.attach(id, ws);
           currentSessionId = id;
 
@@ -116,6 +130,18 @@ export function handleWebSocket(
           // noise, not a user action; drop silently.
           if (!currentSessionId) return;
           terminalManager.resize(currentSessionId, msg.cols, msg.rows, ws);
+          break;
+        }
+
+        case 'clear_history': {
+          if (!currentSessionId) {
+            send(ws, { type: 'error', message: 'No session attached.' });
+            return;
+          }
+          terminalManager.clearHistory(currentSessionId, ws);
+          // Ack so the client clears its own xterm scrollback in the same
+          // moment — server wipes tmux + ring buffer, client wipes the DOM.
+          send(ws, { type: 'history_cleared' });
           break;
         }
 

@@ -28,6 +28,17 @@ import {
 const TMUX_SOCKET = 'ccrt';
 const TMUX_PREFIX = 'ccrt';
 
+/** Thrown by create() when the resume target is held by a live process and
+ *  the caller has not confirmed the takeover. ws-handler turns it into a
+ *  'resume_held' message so the viewer gets a consent prompt instead of a
+ *  silent kick — see the holder block in create(). */
+export class ResumeHeldError extends Error {
+  constructor(public readonly holderPid: string) {
+    super(`Resume target held by pid ${holderPid}`);
+    this.name = 'ResumeHeldError';
+  }
+}
+
 /** How long attach() waits after resizing for the CLI to repaint at the new
  *  width before capturing history and replaying the ring buffer. Claude Code
  *  (and codex/kimi/agy) start their SIGWINCH repaint well under this; going
@@ -228,7 +239,7 @@ export class TerminalManager {
       }
     }
     const backendExecutable = this.findBackendExecutable(backend);
-    let backendArgs = buildBackendCommand({
+    const backendArgs = buildBackendCommand({
       backend,
       executable: backendExecutable,
       cwd,
@@ -240,13 +251,19 @@ export class TerminalManager {
       reasoningEffort: options.reasoningEffort,
     });
 
-    // Session held by a live bg agent (daemon serving the desktop app / TG
-    // bridge): a fresh `--resume` prints a refusal and dies within a second.
-    // The CLI offers no non-interactive attach (verified on 2.1.218), so fall
-    // back to the interactive agents picker in this same terminal — selecting
-    // the session there takes it over for real.
-    if (holderPid) {
-      backendArgs = [backendExecutable, 'agents'];
+    // Session held by a live process (daemon serving the desktop app / TG
+    // bridge / another terminal): resuming would TAKE IT OVER — CLI ≥2.1.245
+    // no longer refuses, it kicks the holder off (standing down, code 4090).
+    // That is exactly the polite-confirmation gap Beam's dialog fills, and
+    // silently doing it to a production bot's session would cut the bot off.
+    // So: refuse here unless the viewer explicitly confirmed (takeover flag);
+    // ws-handler turns this into a 'resume_held' prompt. The old fallback —
+    // swapping in the `claude agents` picker — is gone: the picker is an
+    // agent-task ledger keyed on agent-name records, interactive sessions
+    // are not in it, so it could never offer the session being resumed
+    // (verified 2026-08-26, the "menu without my session" loop).
+    if (holderPid && !options.takeover) {
+      throw new ResumeHeldError(holderPid);
     }
 
     // Claude Code's fullscreen renderer draws the conversation on the alternate
@@ -286,8 +303,7 @@ export class TerminalManager {
 
     if (holderPid) {
       session.buffer.write(
-        `\x1b[33m该会话正被后台 agent 持有（pid ${holderPid}，桌面 app / TG bridge 正在用它）。\r\n` +
-        `已打开 agents 列表——选中目标会话回车即可接管（接管后原端会失去它）；Esc 退出。\x1b[0m\r\n\r\n`,
+        `\x1b[33m已确认接管：原持有进程（pid ${holderPid}）将被踢下线（standing down）。\x1b[0m\r\n\r\n`,
       );
     }
 
@@ -311,6 +327,26 @@ export class TerminalManager {
     dims?: { cols: number; rows: number },
   ): Promise<void> {
     const session = this.getSession(sessionId);
+
+    // A recovered entry whose tmux session is gone is a tombstone, not a
+    // session. Spawning a bridge would just die with "can't find session"
+    // (exit 1) and bounce the viewer straight back home with a cryptic exit —
+    // the four "Session not found" taps of 2026-08-26. Say what happened,
+    // hand over what's needed to reopen from history, and bury the entry so
+    // the list stops offering it.
+    if (!session.pty && !this.isTmuxSessionAlive(session.tmuxName)) {
+      try {
+        ws.send(JSON.stringify({
+          type: 'session_dead',
+          sessionId: session.id,
+          resumeSessionId: session.resumeSessionId || null,
+        }));
+      } catch {}
+      session.alive = false;
+      this.store.remove(session.id);
+      this.sessions.delete(session.id);
+      return;
+    }
 
     // If another client already owns this session, tell it that it has been
     // taken over and demote it to read-only — mutating operations are rejected
@@ -424,6 +460,19 @@ export class TerminalManager {
       session.pty.resize(cols, rows);
     }
     this.tmuxExecSafe(['resize-window', '-t', session.tmuxName, '-x', String(cols), '-y', String(rows)]);
+  }
+
+  /** Wipe a session's history everywhere the ghosts live: tmux's scrollback
+   *  (the reflow fix keeps NEW captures clean, but rows already recorded by
+   *  old sessions never heal) and the ring buffer (raw repaint frames). The
+   *  visible screen is untouched — the client clears its own scrollback on
+   *  the 'history_cleared' ack so both sides stay in step. */
+  clearHistory(sessionId: string, ws: WebSocket): void {
+    const session = this.getSession(sessionId);
+    this.assertOwner(session, ws);
+    this.tmuxExecSafe(['clear-history', '-t', session.tmuxName]);
+    session.buffer.clear();
+    session.lastActivity = Date.now();
   }
 
   kill(sessionId: string, ws: WebSocket): void {

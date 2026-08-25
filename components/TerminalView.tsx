@@ -61,17 +61,22 @@ interface TerminalViewProps {
    *  whether the view may close — that reason has to stay readable. */
   onSessionExited?: (id: string, lastWords?: string) => void;
   onInput?: (sendFn: (data: string) => void) => void;
+  /** Same hand-up pattern as onInput (the component sits behind next/dynamic,
+   *  which does not forward refs): parent receives the clear-history trigger
+   *  for the key bar. */
+  onClearHistoryReady?: (clearFn: () => void) => void;
 }
 
 export interface TerminalViewHandle {
   sendInput: (data: string) => void;
+  clearHistory: () => void;
 }
 
 // ─── Component ───
 
 const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   function TerminalView(
-    { sessionId, createOptions, token, theme, onSessionCreated, onSessionExited, onInput },
+    { sessionId, createOptions, token, theme, onSessionCreated, onSessionExited, onInput, onClearHistoryReady },
     ref,
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -98,8 +103,18 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       }
     }, []);
 
+    // Ask the server to wipe this session's history (tmux scrollback + ring
+    // buffer). The xterm side is cleared on the 'history_cleared' ack, not
+    // here — so a failed/ignored request never leaves the two sides split.
+    const clearHistory = useCallback(() => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'clear_history' }));
+      }
+    }, []);
+
     // Expose sendInput via ref
-    useImperativeHandle(ref, () => ({ sendInput }), [sendInput]);
+    useImperativeHandle(ref, () => ({ sendInput, clearHistory }), [sendInput, clearHistory]);
 
     // Notify parent of sendInput function for KeyBar
     useEffect(() => {
@@ -107,6 +122,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         onInput(sendInput);
       }
     }, [onInput, sendInput]);
+
+    useEffect(() => {
+      if (onClearHistoryReady) {
+        onClearHistoryReady(clearHistory);
+      }
+    }, [onClearHistoryReady, clearHistory]);
 
     // ─── Initialize Terminal ───
     useEffect(() => {
@@ -539,6 +560,58 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 currentSessionIdRef.current = msg.sessionId;
                 onSessionCreated?.(msg.sessionId, msg.title, msg.backend);
                 break;
+
+              case 'history_cleared':
+                // Server has wiped tmux scrollback + ring buffer; drop the
+                // xterm scrollback to match. clear() keeps the visible screen.
+                term.clear();
+                break;
+
+              case 'resume_held': {
+                // The resume target is held by a live process. CLI ≥2.1.245
+                // would take it over and kick that process off (standing
+                // down) — for a production bot's session that means cutting
+                // the bot's line. So the server refused and asks: proceed?
+                const ok = window.confirm(
+                  `这个会话正被另一个进程持有（PID ${msg.holderPid}）。\n` +
+                  '继续将接管它，那一头会被踢下线——如果持有者是正在干活的 bot（TG bridge / etwin），它会断线。\n\n确定接管吗？',
+                );
+                if (ok) {
+                  createSentRef.current = true;
+                  ws.send(
+                    JSON.stringify({
+                      type: 'create',
+                      cols: term.cols,
+                      rows: term.rows,
+                      backend: createOptions?.backend,
+                      cwd: createOptions?.cwd,
+                      resumeSessionId: createOptions?.resumeSessionId,
+                      takeover: true,
+                      title: createOptions?.title,
+                      model: createOptions?.model,
+                      permissionMode: createOptions?.permissionMode,
+                      effort: createOptions?.effort,
+                      sandbox: createOptions?.sandbox,
+                      reasoningEffort: createOptions?.reasoningEffort,
+                    }),
+                  );
+                } else {
+                  term.write('\r\n\x1b[33m[已取消接管——那个会话留在原持有者手里。返回键回列表。]\x1b[0m\r\n');
+                }
+                break;
+              }
+
+              case 'session_dead': {
+                // The tmux behind this entry is long gone — no process to
+                // attach. Print why instead of bouncing home, and reuse the
+                // lastWords contract so the page stays put for reading.
+                const hint = msg.resumeSessionId
+                  ? `\r\n\x1b[33m[这个会话已经结束（tmux 已回收），条目已从活跃列表移除。\r\n 对话记录还在：回到首页，从历史列表里找到它可以重开（记录 ${msg.resumeSessionId.slice(0, 8)}…）。]\x1b[0m\r\n`
+                  : '\r\n\x1b[33m[这个会话已经结束（tmux 已回收），条目已从活跃列表移除。\r\n 它的对话记录仍可在首页历史列表里查看。]\x1b[0m\r\n';
+                term.write(hint);
+                onSessionExited?.(msg.sessionId, hint);
+                break;
+              }
 
               case 'exit':
                 term.write('\r\n\x1b[33m[Process exited]\x1b[0m\r\n');

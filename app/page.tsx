@@ -391,6 +391,16 @@ export default function Home() {
     sendInputRef.current = sendFn;
   }, []);
 
+  // Same hand-up dance for the history wipe (TerminalView sits behind
+  // next/dynamic, so refs don't reach it).
+  const clearHistoryRef = useRef<(() => void) | null>(null);
+  const handleClearHistoryReady = useCallback((clearFn: () => void) => {
+    clearHistoryRef.current = clearFn;
+  }, []);
+  const handleKeyBarClearHistory = useCallback(() => {
+    clearHistoryRef.current?.();
+  }, []);
+
   // File upload: inject path into terminal
   const handleFileUploaded = useCallback((filePath: string) => {
     if (sendInputRef.current) {
@@ -580,6 +590,7 @@ export default function Home() {
                   onSessionCreated={handleSessionCreated}
                   onSessionExited={handleSessionExited}
                   onInput={handleTerminalInput}
+                  onClearHistoryReady={handleClearHistoryReady}
                 />
               </DropZone>
             )
@@ -591,6 +602,7 @@ export default function Home() {
         {/* Key bar (touch devices, terminal view only — chat has its own input) */}
         <TerminalKeyBar
           onInput={handleKeyBarInput}
+          onClearHistory={handleKeyBarClearHistory}
           visible={isTouchDevice && !!activeSessionId && activeView === 'term'}
         />
       </div>

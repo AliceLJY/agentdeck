@@ -17,7 +17,8 @@ export type ClientMessage =
   | { type: 'chat_detach' }
   | { type: 'watch_status' }
   | { type: 'chat_input'; sessionId: string; text: string }
-  | { type: 'interrupt'; sessionId: string };
+  | { type: 'interrupt'; sessionId: string }
+  | { type: 'clear_history' };
 
 // Server -> Client (JSON)
 export type ServerMessage =
@@ -27,6 +28,9 @@ export type ServerMessage =
   | { type: 'error'; message: string }
   | { type: 'sessions'; list: SessionInfo[] }
   | { type: 'taken_over' }
+  | { type: 'history_cleared' }
+  | { type: 'session_dead'; sessionId: string; resumeSessionId: string | null }
+  | { type: 'resume_held'; holderPid: number }
   | { type: 'chat_init'; sessionId: string; state: ChatClaimState; messages: ChatMessage[]; meta: TranscriptMeta; truncated: boolean }
   | { type: 'chat_event'; sessionId: string; upserts: ChatMessage[]; meta?: TranscriptMeta }
   | { type: 'chat_state'; sessionId: string; state: ChatClaimState }
@@ -106,6 +110,10 @@ export interface TerminalCreateOptions {
   backend?: HistoryBackend;
   cwd?: string;
   resumeSessionId?: string;
+  /** Resume even though a live process holds the session. CLI ≥2.1.245 takes
+   *  it over itself (the held side stands down, code 4090); without this flag
+   *  a held resume is refused with 'resume_held' so the viewer can decide. */
+  takeover?: boolean;
   title?: string;
   /** claude: --model alias/full name · codex: -m */
   model?: string;

@@ -5,6 +5,10 @@ import { bracketed, readClipboard } from '@/lib/paste';
 
 interface TerminalKeyBarProps {
   onInput: (data: string) => void;
+  /** Wipe the session's history everywhere (tmux scrollback + ring buffer +
+   *  xterm) — old sessions carry pre-reflow ghost rows that never heal on
+   *  their own; this is the one-tap wash. */
+  onClearHistory?: () => void;
   visible: boolean;
 }
 
@@ -23,7 +27,7 @@ const ARROW_KEYS: Record<string, string> = {
   '\u2192': '\x1b[C',  // Right
 };
 
-export default function TerminalKeyBar({ onInput, visible }: TerminalKeyBarProps) {
+export default function TerminalKeyBar({ onInput, onClearHistory, visible }: TerminalKeyBarProps) {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [canPaste, setCanPaste] = useState(false);
   const [pasteState, setPasteState] = useState<'idle' | 'ok' | 'fail'>('idle');
@@ -133,6 +137,37 @@ export default function TerminalKeyBar({ onInput, visible }: TerminalKeyBarProps
               />
             </svg>
           )}
+        </button>
+      )}
+
+      {/* Wipe history — destructive (scrollback is gone for good), so it
+          asks once. Distinct from the Clear key, which only clears the
+          input LINE (Ctrl+U). */}
+      {onClearHistory && (
+        <button
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => {
+            if (window.confirm('清空这个会话的滚动历史？（老残骸一起清，当前屏幕保留）')) {
+              onClearHistory();
+            }
+          }}
+          title="Clear scrollback history"
+          aria-label="Clear scrollback history"
+          className="w-[44px] min-h-[44px] flex items-center justify-center rounded-lg
+            bg-white dark:bg-gray-700
+            text-gray-700 dark:text-gray-200
+            active:bg-gray-300 dark:active:bg-gray-600
+            border border-gray-300 dark:border-gray-600
+            select-none"
+          style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+            />
+          </svg>
         </button>
       )}
 
