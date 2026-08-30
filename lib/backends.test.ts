@@ -4,6 +4,7 @@ import {
   backendForNewTerminal,
   buildBackendCommand,
   getBackendDisplay,
+  getTranscriptCapabilities,
   normalizeBackend,
 } from './backends';
 
@@ -13,6 +14,22 @@ test('maps Claude and Codex backends to distinct UI colors', () => {
 
   assert.equal(getBackendDisplay('codex').label, 'Codex');
   assert.match(getBackendDisplay('codex').accentClass, /emerald|teal/);
+});
+
+test('declares transcript metadata capabilities per backend', () => {
+  assert.deepEqual(getTranscriptCapabilities('claude'), {
+    model: 'supported',
+    gitBranch: 'supported',
+    contextTokens: 'supported',
+    totalOutTokens: 'supported',
+    aiTitle: 'supported',
+    transcriptId: 'supported',
+  });
+  assert.equal(getTranscriptCapabilities('codex').gitBranch, 'unsupported');
+  assert.equal(getTranscriptCapabilities('codex').transcriptId, 'supported');
+  assert.equal(getTranscriptCapabilities('kimi').contextTokens, 'supported');
+  assert.equal(getTranscriptCapabilities('kimi').model, 'unsupported');
+  assert.ok(Object.values(getTranscriptCapabilities('agy')).every((state) => state === 'unsupported'));
 });
 
 test('normalizes unknown backend input to Claude for compatibility', () => {

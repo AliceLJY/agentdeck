@@ -250,12 +250,8 @@ export default function ChatView({ sessionId, backend, token, onRequestTerm }: C
       {/* Meta line */}
       <div className="flex items-center gap-2 px-4 py-1 text-[11px] text-gray-400 dark:text-gray-500 border-t border-gray-100 dark:border-gray-800 overflow-x-auto whitespace-nowrap">
         {meta.model && <span>{meta.model}</span>}
-        {typeof meta.contextTokens === 'number' && meta.contextTokens > 0 && (
-          <span>· ctx {formatTokens(meta.contextTokens)}</span>
-        )}
-        {typeof meta.totalOutTokens === 'number' && meta.totalOutTokens > 0 && (
-          <span>· {formatTokens(meta.totalOutTokens)} out</span>
-        )}
+        <TranscriptMetric meta={meta} field="contextTokens" label="ctx" value={meta.contextTokens} />
+        <TranscriptMetric meta={meta} field="totalOutTokens" label="out" value={meta.totalOutTokens} />
         {meta.gitBranch && <span>· {meta.gitBranch}</span>}
         {!connected && <span className="text-amber-500">· reconnecting…</span>}
         {readOnly && <span className="text-amber-500">· read-only (taken over)</span>}
@@ -438,6 +434,30 @@ function ToolStrip({ tools }: { tools: ChatMessage['tools'] }) {
       )}
     </div>
   );
+}
+
+function TranscriptMetric({
+  meta,
+  field,
+  label,
+  value,
+}: {
+  meta: TranscriptMeta;
+  field: 'contextTokens' | 'totalOutTokens';
+  label: string;
+  value: number | undefined;
+}) {
+  const capability = meta.capabilities?.[field];
+  const presence = meta.presence?.[field];
+  if (capability === 'unsupported' || capability === 'not_applicable') {
+    return <span>· {label} n/a</span>;
+  }
+  if (presence === 'malformed') return <span>· {label} ?</span>;
+  if (capability === 'supported' && presence !== 'present') return <span>· {label} —</span>;
+  if (presence === 'present' && typeof value === 'number') {
+    return <span>· {label} {formatTokens(value)}</span>;
+  }
+  return null;
 }
 
 function formatTokens(n: number): string {

@@ -1,6 +1,18 @@
 export type HistoryBackend = 'claude' | 'kimi' | 'agy' | 'codex';
 export type HistoryBackendFilter = HistoryBackend | 'all';
 
+export const TRANSCRIPT_META_FIELDS = [
+  'model',
+  'gitBranch',
+  'contextTokens',
+  'totalOutTokens',
+  'aiTitle',
+  'transcriptId',
+] as const;
+export type TranscriptMetaField = typeof TRANSCRIPT_META_FIELDS[number];
+export type TranscriptCapabilityState = 'supported' | 'unsupported' | 'not_applicable';
+export type TranscriptCapabilities = Readonly<Record<TranscriptMetaField, TranscriptCapabilityState>>;
+
 export interface BackendDisplay {
   label: string;
   accentClass: string;
@@ -88,6 +100,17 @@ const BACKEND_DISPLAY: Record<HistoryBackend, BackendDisplay> = {
   },
 };
 
+/** What the adapters in this repository can actually extract today.
+ * Missing from a supported field means "not observed in this transcript";
+ * unsupported means there is no parser for that field yet.
+ */
+const BACKEND_TRANSCRIPT_CAPABILITIES: Record<HistoryBackend, TranscriptCapabilities> = {
+  claude: { model: 'supported', gitBranch: 'supported', contextTokens: 'supported', totalOutTokens: 'supported', aiTitle: 'supported', transcriptId: 'supported' },
+  codex: { model: 'supported', gitBranch: 'unsupported', contextTokens: 'supported', totalOutTokens: 'supported', aiTitle: 'unsupported', transcriptId: 'supported' },
+  kimi: { model: 'unsupported', gitBranch: 'unsupported', contextTokens: 'supported', totalOutTokens: 'supported', aiTitle: 'unsupported', transcriptId: 'unsupported' },
+  agy: { model: 'unsupported', gitBranch: 'unsupported', contextTokens: 'unsupported', totalOutTokens: 'unsupported', aiTitle: 'unsupported', transcriptId: 'unsupported' },
+};
+
 /** Compile-time exhaustiveness for backend dispatch sites. Call it after
  *  handling every member of HistoryBackend: when a new backend id is added,
  *  every dispatch that forgot a branch stops COMPILING instead of silently
@@ -114,6 +137,10 @@ export function normalizeBackendFilter(value: unknown): HistoryBackendFilter {
 
 export function getBackendDisplay(backend: HistoryBackend): BackendDisplay {
   return BACKEND_DISPLAY[backend];
+}
+
+export function getTranscriptCapabilities(backend: HistoryBackend): TranscriptCapabilities {
+  return BACKEND_TRANSCRIPT_CAPABILITIES[backend];
 }
 
 /** Which backend a brand-new terminal starts with, given the home screen filter.

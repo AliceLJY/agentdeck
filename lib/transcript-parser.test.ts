@@ -13,6 +13,35 @@ function codexLine(type: string, payload: Record<string, unknown>): string {
 }
 
 describe('TranscriptParser (claude)', () => {
+  it('distinguishes supported-but-missing, present zero, and malformed metadata', () => {
+    const p = new TranscriptParser('claude');
+    assert.equal(p.meta.capabilities?.contextTokens, 'supported');
+    assert.equal(p.meta.presence?.contextTokens, 'missing');
+    assert.equal(p.meta.contextTokens, undefined);
+
+    p.parseLine(claudeLine({
+      type: 'assistant',
+      message: {
+        id: 'msg_zero', role: 'assistant', model: 'claude-opus-4-8', content: [],
+        usage: { input_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 0 },
+      },
+    }));
+    assert.equal(p.meta.presence?.contextTokens, 'present');
+    assert.equal(p.meta.presence?.totalOutTokens, 'present');
+    assert.equal(p.meta.contextTokens, 0);
+    assert.equal(p.meta.totalOutTokens, 0);
+
+    p.parseLine(claudeLine({
+      type: 'assistant',
+      message: {
+        id: 'msg_bad', role: 'assistant', content: [],
+        usage: { input_tokens: null, output_tokens: 'unknown' },
+      },
+    }));
+    assert.equal(p.meta.presence?.contextTokens, 'malformed');
+    assert.equal(p.meta.presence?.totalOutTokens, 'malformed');
+  });
+
   it('shows a prompt queued while the CLI was busy (remove never writes a user line)', () => {
     const p = new TranscriptParser('claude');
 
@@ -220,6 +249,10 @@ describe('TranscriptParser (codex)', () => {
     assert.equal(r.metaChanged, true);
     assert.equal(p.meta.contextTokens, 9000);
     assert.equal(p.meta.totalOutTokens, 900);
+    assert.equal(p.meta.presence?.model, 'present');
+    assert.equal(p.meta.presence?.contextTokens, 'present');
+    assert.equal(p.meta.presence?.totalOutTokens, 'present');
+    assert.equal(p.meta.capabilities?.gitBranch, 'unsupported');
   });
 
   it('parses local_shell_call actions', () => {
@@ -286,6 +319,9 @@ describe('TranscriptParser (kimi)', () => {
     assert.equal(p.all().filter((m) => m.role === 'assistant').length, 2);
     assert.equal(p.meta.totalOutTokens, 42);
     assert.equal(p.meta.contextTokens, 105);
+    assert.equal(p.meta.presence?.totalOutTokens, 'present');
+    assert.equal(p.meta.presence?.contextTokens, 'present');
+    assert.equal(p.meta.capabilities?.model, 'unsupported');
   });
 });
 
@@ -293,6 +329,14 @@ describe('TranscriptParser (agy)', () => {
   function agyLine(extra: Record<string, unknown>): string {
     return JSON.stringify({ step_index: 0, status: 'DONE', created_at: ts, ...extra });
   }
+
+  it('marks unavailable transcript metadata as unsupported', () => {
+    const p = new TranscriptParser('agy');
+    assert.equal(p.meta.capabilities?.model, 'unsupported');
+    assert.equal(p.meta.capabilities?.contextTokens, 'unsupported');
+    assert.equal(p.meta.presence?.model, undefined);
+    assert.equal(p.meta.presence?.contextTokens, undefined);
+  });
 
   it('extracts the wrapped user request and drops the metadata block', () => {
     const p = new TranscriptParser('agy');

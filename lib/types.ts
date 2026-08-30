@@ -1,5 +1,5 @@
 // ─── WebSocket Protocol ───
-import type { HistoryBackend } from './backends';
+import type { HistoryBackend, TranscriptCapabilities, TranscriptMetaField } from './backends';
 
 // Client -> Server (JSON)
 export type ClientMessage =
@@ -73,6 +73,9 @@ export interface ChatMessage {
  */
 export type ChatClaimState = 'pending' | 'claimed' | 'unclaimed';
 
+export type TranscriptPresenceState = 'present' | 'missing' | 'malformed';
+export type TranscriptPresence = Partial<Record<TranscriptMetaField, TranscriptPresenceState>>;
+
 export interface TranscriptMeta {
   model?: string;
   gitBranch?: string;
@@ -80,6 +83,8 @@ export interface TranscriptMeta {
   totalOutTokens?: number;    // cumulative output tokens
   aiTitle?: string;
   transcriptId?: string;      // on-disk session id
+  capabilities?: TranscriptCapabilities;
+  presence?: TranscriptPresence;
 }
 
 export interface SessionStatus {

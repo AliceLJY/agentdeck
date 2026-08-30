@@ -1,5 +1,18 @@
-import { assertExhaustive, type HistoryBackend } from './backends';
-import type { ChatMessage, ToolCallInfo, TranscriptMeta } from './types';
+import {
+  TRANSCRIPT_META_FIELDS,
+  assertExhaustive,
+  getTranscriptCapabilities,
+  type HistoryBackend,
+  type TranscriptCapabilities,
+  type TranscriptMetaField,
+} from './backends';
+import type {
+  ChatMessage,
+  ToolCallInfo,
+  TranscriptMeta,
+  TranscriptPresence,
+  TranscriptPresenceState,
+} from './types';
 
 /**
  * Incremental transcript parser: feed it raw JSONL lines from a live
@@ -30,7 +43,7 @@ const MAX_QUEUED_CLAIMS = 64;
 
 export class TranscriptParser {
   readonly backend: HistoryBackend;
-  readonly meta: TranscriptMeta = {};
+  readonly meta: TranscriptMeta;
 
   private messages = new Map<string, ChatMessage>();
   private order: string[] = [];
@@ -54,6 +67,8 @@ export class TranscriptParser {
 
   constructor(backend: HistoryBackend) {
     this.backend = backend;
+    const capabilities = getTranscriptCapabilities(backend);
+    this.meta = { capabilities, presence: initialPresence(capabilities) };
   }
 
   all(): ChatMessage[] {
@@ -97,20 +112,11 @@ export class TranscriptParser {
   private parseClaudeEvent(event: Record<string, unknown>): ParseResult {
     let metaChanged = false;
 
-    if (typeof event.gitBranch === 'string' && event.gitBranch && event.gitBranch !== this.meta.gitBranch) {
-      this.meta.gitBranch = event.gitBranch;
-      metaChanged = true;
-    }
-    if (typeof event.sessionId === 'string' && event.sessionId && event.sessionId !== this.meta.transcriptId) {
-      this.meta.transcriptId = event.sessionId;
-      metaChanged = true;
-    }
+    if (this.applyStringMeta('gitBranch', event.gitBranch)) metaChanged = true;
+    if (this.applyStringMeta('transcriptId', event.sessionId)) metaChanged = true;
 
     if (event.type === 'ai-title') {
-      if (typeof event.aiTitle === 'string' && event.aiTitle) {
-        this.meta.aiTitle = event.aiTitle;
-        metaChanged = true;
-      }
+      if (this.applyStringMeta('aiTitle', event.aiTitle)) metaChanged = true;
       return { upserts: [], metaChanged };
     }
 
@@ -151,10 +157,7 @@ export class TranscriptParser {
       ? message.id
       : (typeof event.uuid === 'string' && event.uuid ? event.uuid : `a${this.seq++}`);
 
-    if (typeof message.model === 'string' && message.model && message.model !== this.meta.model) {
-      this.meta.model = message.model;
-      metaChanged = true;
-    }
+    if (this.applyStringMeta('model', message.model)) metaChanged = true;
     if (this.applyClaudeUsage(msgId, asRecord(message.usage))) metaChanged = true;
 
     const content = Array.isArray(message.content) ? message.content : [];
@@ -217,22 +220,28 @@ export class TranscriptParser {
 
   private applyClaudeUsage(msgId: string, usage: Record<string, unknown> | null): boolean {
     if (!usage) return false;
-    const input = numberOr0(usage.input_tokens)
-      + numberOr0(usage.cache_read_input_tokens)
-      + numberOr0(usage.cache_creation_input_tokens);
-    const output = numberOr0(usage.output_tokens);
+    const input = readNumericSum(usage, [
+      'input_tokens',
+      'cache_read_input_tokens',
+      'cache_creation_input_tokens',
+    ]);
+    const output = readFiniteNumber(usage, 'output_tokens');
 
     let changed = false;
-    if (input > 0 && input !== this.meta.contextTokens) {
-      this.meta.contextTokens = input;
-      changed = true;
-    }
+    if (this.applyNumericMeta('contextTokens', input)) changed = true;
     // usage repeats on every streamed line of the same message — count the delta only
-    const prev = this.outByMsg.get(msgId) || 0;
-    if (output > prev) {
-      this.meta.totalOutTokens = (this.meta.totalOutTokens || 0) + (output - prev);
-      this.outByMsg.set(msgId, output);
-      changed = true;
+    if (output.state !== 'missing' && this.setPresence('totalOutTokens', output.state)) changed = true;
+    if (output.state === 'present') {
+      const prev = this.outByMsg.get(msgId);
+      if (prev === undefined) {
+        this.outByMsg.set(msgId, output.value);
+        this.meta.totalOutTokens = (this.meta.totalOutTokens ?? 0) + output.value;
+        changed = true;
+      } else if (output.value > prev) {
+        this.meta.totalOutTokens = (this.meta.totalOutTokens ?? 0) + (output.value - prev);
+        this.outByMsg.set(msgId, output.value);
+        changed = true;
+      }
     }
     return changed;
   }
@@ -247,21 +256,12 @@ export class TranscriptParser {
       : new Date().toISOString();
 
     if (event.type === 'session_meta') {
-      let metaChanged = false;
-      if (typeof payload.id === 'string' && payload.id && payload.id !== this.meta.transcriptId) {
-        this.meta.transcriptId = payload.id;
-        metaChanged = true;
-      }
+      const metaChanged = this.applyStringMeta('transcriptId', payload.id);
       return { upserts: [], metaChanged };
     }
 
     if (event.type === 'turn_context') {
-      const model = typeof payload.model === 'string' ? payload.model : '';
-      if (model && model !== this.meta.model) {
-        this.meta.model = model;
-        return { upserts: [], metaChanged: true };
-      }
-      return EMPTY_RESULT;
+      return { upserts: [], metaChanged: this.applyStringMeta('model', payload.model) };
     }
 
     if (event.type === 'event_msg') {
@@ -309,18 +309,12 @@ export class TranscriptParser {
 
     let changed = false;
     if (last) {
-      const ctx = numberOr0(last.input_tokens) + numberOr0(last.cached_input_tokens);
-      if (ctx > 0 && ctx !== this.meta.contextTokens) {
-        this.meta.contextTokens = ctx;
-        changed = true;
-      }
+      const ctx = readNumericSum(last, ['input_tokens', 'cached_input_tokens']);
+      if (this.applyNumericMeta('contextTokens', ctx)) changed = true;
     }
     if (total) {
-      const out = numberOr0(total.output_tokens);
-      if (out > 0 && out !== this.meta.totalOutTokens) {
-        this.meta.totalOutTokens = out; // already cumulative
-        changed = true;
-      }
+      const out = readFiniteNumber(total, 'output_tokens');
+      if (this.applyNumericMeta('totalOutTokens', out)) changed = true; // already cumulative
     }
     return { upserts: [], metaChanged: changed };
   }
@@ -361,16 +355,12 @@ export class TranscriptParser {
       this.kimiStepMsgId = null;
       if (!usage) return EMPTY_RESULT;
       let changed = false;
-      const ctx = numberOr0(usage.inputOther)
-        + numberOr0(usage.inputCacheRead)
-        + numberOr0(usage.inputCacheCreation);
-      if (ctx > 0 && ctx !== this.meta.contextTokens) {
-        this.meta.contextTokens = ctx;
-        changed = true;
-      }
-      const out = numberOr0(usage.output);
-      if (out > 0) {
-        this.meta.totalOutTokens = (this.meta.totalOutTokens || 0) + out;
+      const ctx = readNumericSum(usage, ['inputOther', 'inputCacheRead', 'inputCacheCreation']);
+      if (this.applyNumericMeta('contextTokens', ctx)) changed = true;
+      const out = readFiniteNumber(usage, 'output');
+      if (out.state !== 'missing' && this.setPresence('totalOutTokens', out.state)) changed = true;
+      if (out.state === 'present') {
+        this.meta.totalOutTokens = (this.meta.totalOutTokens ?? 0) + out.value;
         changed = true;
       }
       return { upserts: [], metaChanged: changed };
@@ -463,6 +453,36 @@ export class TranscriptParser {
     return EMPTY_RESULT;
   }
 
+  private applyStringMeta(field: 'model' | 'gitBranch' | 'aiTitle' | 'transcriptId', value: unknown): boolean {
+    if (value === undefined) return false;
+    if (typeof value !== 'string' || value.length === 0) {
+      return this.setPresence(field, 'malformed');
+    }
+    let changed = this.setPresence(field, 'present');
+    if (this.meta[field] !== value) {
+      this.meta[field] = value;
+      changed = true;
+    }
+    return changed;
+  }
+
+  private applyNumericMeta(field: 'contextTokens' | 'totalOutTokens', result: NumericRead): boolean {
+    if (result.state === 'missing') return false;
+    let changed = this.setPresence(field, result.state);
+    if (result.state === 'present' && this.meta[field] !== result.value) {
+      this.meta[field] = result.value;
+      changed = true;
+    }
+    return changed;
+  }
+
+  private setPresence(field: TranscriptMetaField, state: TranscriptPresenceState): boolean {
+    const presence = this.meta.presence ?? (this.meta.presence = {});
+    if (presence[field] === state) return false;
+    presence[field] = state;
+    return true;
+  }
+
   // ─── Shared ───
 
   private upsert(msg: ChatMessage): void {
@@ -488,8 +508,39 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function numberOr0(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+type NumericRead =
+  | { state: 'missing' }
+  | { state: 'malformed' }
+  | { state: 'present'; value: number };
+
+function initialPresence(capabilities: TranscriptCapabilities): TranscriptPresence {
+  const presence: TranscriptPresence = {};
+  for (const field of TRANSCRIPT_META_FIELDS) {
+    if (capabilities[field] === 'supported') presence[field] = 'missing';
+  }
+  return presence;
+}
+
+function readFiniteNumber(record: Record<string, unknown>, key: string): NumericRead {
+  if (!Object.prototype.hasOwnProperty.call(record, key)) return { state: 'missing' };
+  const value = record[key];
+  return typeof value === 'number' && Number.isFinite(value)
+    ? { state: 'present', value }
+    : { state: 'malformed' };
+}
+
+function readNumericSum(record: Record<string, unknown>, keys: string[]): NumericRead {
+  let seen = false;
+  let sum = 0;
+  for (const key of keys) {
+    const part = readFiniteNumber(record, key);
+    if (part.state === 'malformed') return part;
+    if (part.state === 'present') {
+      seen = true;
+      sum += part.value;
+    }
+  }
+  return seen ? { state: 'present', value: sum } : { state: 'missing' };
 }
 
 function claudeUserText(content: unknown): string {
