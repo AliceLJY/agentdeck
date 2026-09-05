@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build and restart cc-terminal in production mode
+# Build and restart AgentDeck in production mode
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

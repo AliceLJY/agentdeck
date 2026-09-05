@@ -1,7 +1,7 @@
 # Alt Screen Scrollback 方案研究
 
 > 研究日期：2026-04-15
-> 目标：让 cc-remote-term 在 web 端跑 Claude Code / vim / tmux 等 TUI 程序时，用户能用鼠标滚轮向上翻历史（Mac Terminal.app 同款体验）
+> 目标：让 agentdeck 在 web 端跑 Claude Code / vim / tmux 等 TUI 程序时，用户能用鼠标滚轮向上翻历史（Mac Terminal.app 同款体验）
 
 ---
 
@@ -27,7 +27,7 @@ touch 手势解决**（阈值 6px → `term.scrollLines` → 松手惯性），�
 同期查证的另一条：**Orca 的做法借鉴不过来**。它宣传的 "scrollback survives restarts" 解决的是
 「重启不丢历史」（@xterm/headless + SerializeAddon 落盘冷恢复），与「alt screen 里能不能滚」
 不是同一个问题；而它手机端能顺畅滚动，是因为那是 React Native 原生 app，压根不经过
-Safari 的触摸事件模型。详见 `shared-research/前沿扫描/orca-vs-cc-remote-term-code-comparison-2026-07-22.md`。
+Safari 的触摸事件模型（内部比较笔记，不在本仓）。
 
 ---
 
@@ -102,7 +102,7 @@ App 层拦截滚轮，滚 app 自己维护的历史缓存。**这是我们要复
 
 | 风险 | 严重度 | 缓解 |
 |------|--------|------|
-| SerializeAddon 在当前 xterm.js 版本 API 变动 | Medium | 直接用 OpenCode 版本（`ITerminalCore` 公共接口），验证 cc-remote-term 的 xterm.js 版本兼容 |
+| SerializeAddon 在当前 xterm.js 版本 API 变动 | Medium | 直接用 OpenCode 版本（`ITerminalCore` 公共接口），验证 agentdeck 的 xterm.js 版本兼容 |
 | wheel 事件拦截误触发（htop/btop 等真用滚轮的 TUI） | Low | 用户已确认：日常不用 htop/btop，这类场景有方向键 fallback |
 | overlay 独立 xterm 实例内存/性能开销 | Low | 仅在需要时创建，关闭时 dispose；scrollback 已限 10000 行 |
 | 移动端触摸手势 | Medium | 独立一轮跨平台测试（Chrome Mac / iOS Safari / Android Chrome） |
@@ -119,7 +119,7 @@ App 层拦截滚轮，滚 app 自己维护的历史缓存。**这是我们要复
 **观察点（触发迁移条件）**：
 - ghostty-web 0.5 发布，#148 修复
 - 有项目在生产跑通 customWheelEventHandler + alt screen scrollback
-- cc-remote-term 开始需要 VT 正确性更强的场景（复杂 Unicode / XTPUSHSGR）
+- agentdeck 开始需要 VT 正确性更强的场景（复杂 Unicode / XTPUSHSGR）
 
 届时启动方案 B 迁移。
 
@@ -127,8 +127,8 @@ App 层拦截滚轮，滚 app 自己维护的历史缓存。**这是我们要复
 
 ## 附录：关键文件路径
 
-- cc-remote-term 主终端组件：`components/TerminalView.tsx:65-328`
-- cc-remote-term 全局 CSS：`app/globals.css:59-68`（xterm-viewport）
+- agentdeck 主终端组件：`components/TerminalView.tsx:65-328`
+- agentdeck 全局 CSS：`app/globals.css:59-68`（xterm-viewport）
 - OpenCode SerializeAddon：`packages/app/src/addons/serialize.ts`（MIT 上游）
 - ghostty-web 滚轮源码（参考）：`lib/terminal.ts:1543-1605`
 - xterm.js alt screen issue：https://github.com/xtermjs/xterm.js/issues/3184

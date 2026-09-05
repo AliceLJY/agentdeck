@@ -35,7 +35,7 @@ test('displayIp prefers the forwarded address so the owner sees the real phone',
 
 test('displayIp takes the first hop of a forwarded chain', () => {
   assert.equal(
-    displayIp({ 'x-forwarded-for': '203.0.113.7, 70.41.3.18' }, '127.0.0.1'),
+    displayIp({ 'x-forwarded-for': '203.0.113.7, 198.51.100.9' }, '127.0.0.1'),
     '203.0.113.7',
   );
 });
@@ -46,7 +46,7 @@ test('displayIp handles a repeated header arriving as an array', () => {
 
 test('displayIp falls back to the socket behind a plain tcp tunnel', () => {
   // frp in tcp mode adds no headers, so the socket is all there is.
-  assert.equal(displayIp({}, '192.168.3.243'), '192.168.3.243');
+  assert.equal(displayIp({}, '198.51.100.7'), '198.51.100.7');
 });
 
 test('displayIp reports unknown when there is nothing to go on', () => {

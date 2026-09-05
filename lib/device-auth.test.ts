@@ -26,7 +26,7 @@ const ctx = (
 
 /** The tunnel case: frp tcp forwarding makes every remote client look local. */
 const viaTunnel = (deviceId: string | null) =>
-  ctx(deviceId, { peerIp: '127.0.0.1', displayIp: '112.94.4.124' });
+  ctx(deviceId, { peerIp: '127.0.0.1', displayIp: '203.0.113.45' });
 
 test('the very first device is not adopted — it waits for approval', () => {
   const store = freshStore();
@@ -118,7 +118,7 @@ test('a corrupt allowlist is never overwritten', () => {
 test('the display ip is recorded even when the peer is the tunnel', () => {
   const store = freshStore();
   const decision = authorizeDevice(store, viaTunnel('phone-1'));
-  assert.equal(decision.device.lastIp, '112.94.4.124', 'the owner needs the real address');
+  assert.equal(decision.device.lastIp, '203.0.113.45', 'the owner needs the real address');
 });
 
 test('labels devices from the user agent', () => {
