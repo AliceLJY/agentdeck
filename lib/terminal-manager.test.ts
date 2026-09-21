@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as path from 'path';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 import {
+  TerminalManager,
   backendExecutableCandidates,
   findResumeHolder,
   stripTerminalNoise,
@@ -157,4 +160,65 @@ test('the candidate table covers every HistoryBackend id', () => {
     Object.keys(backendExecutableCandidates('/Users/test')).sort(),
     ['agy', 'claude', 'codex', 'kimi'],
   );
+});
+
+// A session recovered after a server restart has no PTY bridge until a viewer
+// attaches, so the server never sees its output. Before 2026-09-21 its
+// lastActivity froze at recovery and cleanupIdle killed it 30 minutes later
+// even while the CLI was busy on a long task. tmux's window_activity keeps
+// moving on pane output with no client attached — that is the clock to trust.
+function recoveredManager(windowActivitySec: number) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'agentdeck-idle-'));
+  const calls = path.join(dir, 'calls.log');
+  const bin = path.join(dir, 'tmux');
+  writeFileSync(calls, '');
+  writeFileSync(bin, [
+    '#!/bin/sh',
+    `echo "$*" >> '${calls}'`,
+    'case "$*" in',
+    '  *list-sessions*) echo "ccrt-job" ;;',
+    '  *list-panes*) echo "0" ;;',
+    `  *window_activity*) echo "${windowActivitySec}" ;;`,
+    '  *display-message*) echo "/tmp" ;;',
+    'esac',
+    'exit 0',
+    '',
+  ].join('\n'));
+  chmodSync(bin, 0o755);
+  const store = { loadAll: () => ({}), remove: () => {}, save: () => {}, updateTitle: () => {} };
+  const manager = new TerminalManager({ tmuxPath: bin, store, startCleanupTimer: false, home: dir });
+  return { manager, killed: () => readFileSync(calls, 'utf8').includes('kill-session') };
+}
+
+async function sweepAfter(windowActivityMsAgo: number | null): Promise<{ left: number; killed: boolean }> {
+  const realNow = Date.now;
+  const start = 1_800_000_000_000;
+  const sweepAt = start + 31 * 60_000;
+  const activitySec = windowActivityMsAgo === null
+    ? Math.floor(start / 1000) - 10
+    : Math.floor((sweepAt - windowActivityMsAgo) / 1000);
+  const { manager, killed } = recoveredManager(activitySec);
+  try {
+    Date.now = () => start;
+    await manager.init();
+    assert.equal(manager.list().length, 1, 'the fake tmux session should be recovered');
+    Date.now = () => sweepAt;
+    (manager as unknown as { cleanupIdle(): void }).cleanupIdle();
+    return { left: manager.list().length, killed: killed() };
+  } finally {
+    Date.now = realNow;
+    manager.destroy();
+  }
+}
+
+test('cleanupIdle keeps a recovered session whose pane printed a minute ago', async () => {
+  const { left, killed } = await sweepAfter(60_000);
+  assert.equal(killed, false, 'a busy recovered session must not be killed');
+  assert.equal(left, 1);
+});
+
+test('cleanupIdle still reclaims a recovered session that has been quiet past IDLE_TIMEOUT', async () => {
+  const { left, killed } = await sweepAfter(null);
+  assert.equal(killed, true);
+  assert.equal(left, 0);
 });

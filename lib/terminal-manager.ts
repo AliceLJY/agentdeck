@@ -648,6 +648,14 @@ export class TerminalManager {
     try { this.tmuxExec(['has-session', '-t', tmuxName]); return true; } catch { return false; }
   }
 
+  /** Last pane output tmux recorded for the session's window, in ms (0 if unknown). */
+  private tmuxWindowActivityMs(tmuxName: string): number {
+    const seconds = Number(
+      this.tmuxExecSafe(['display-message', '-p', '-t', tmuxName, '#{window_activity}']).trim(),
+    );
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+  }
+
   private isPaneAlive(tmuxName: string): boolean {
     try {
       return this.tmuxExec(['list-panes', '-t', tmuxName, '-F', '#{pane_dead}']).trim() === '0';
@@ -710,7 +718,15 @@ export class TerminalManager {
   private cleanupIdle(): void {
     const now = Date.now();
     for (const [id, s] of this.sessions.entries()) {
-      if (!s.ws && (now - s.lastActivity) > IDLE_TIMEOUT) {
+      if (s.ws) continue;
+      // A recovered session has no PTY bridge until someone attaches, so this
+      // process never sees its output and lastActivity froze at recovery — a
+      // CLI busy on a long task looked idle and was killed 30 minutes after
+      // every server restart. tmux keeps its own clock: window_activity moves
+      // on pane output with no client attached (session_activity does not, it
+      // only moves on client input — both checked on tmux 3.7b, 2026-09-21).
+      if (!s.pty) s.lastActivity = Math.max(s.lastActivity, this.tmuxWindowActivityMs(s.tmuxName));
+      if ((now - s.lastActivity) > IDLE_TIMEOUT) {
         console.log(`[agentdeck] Cleaning up idle session: ${id}`);
         this.killSession(s);
       }
