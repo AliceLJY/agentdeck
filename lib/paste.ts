@@ -13,20 +13,43 @@ export function bracketed(text: string): string {
 /**
  * Write to the clipboard for a copy button. Returns false when unavailable.
  *
- * simplified: secure-context Clipboard API only. The tunnel keeps a plain-HTTP
- * route as a fallback for the day sslip.io goes down, and there the button
- * reports failure instead of copying. Add the execCommand path only if that
- * fallback route stops being rare.
+ * The Clipboard API only exists in a secure context, and plain HTTP is not a
+ * rare fallback: the phone reaches AgentDeck at http://<tailscale-ip>:3109
+ * through the tailscale node in its FlClash override (so VPN and tailscale can
+ * run together). There, fall back to execCommand('copy') on a hidden textarea —
+ * deprecated but still honoured inside the tap that triggered it.
  */
 export async function writeClipboard(text: string): Promise<boolean> {
   if (!text) return false;
-  try {
-    if (!navigator.clipboard?.writeText) return false;
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Denied or unavailable — try the legacy path below.
+    }
   }
+  return copyViaTextarea(text);
+}
+
+function copyViaTextarea(text: string): boolean {
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', ''); // no soft keyboard on phones
+  area.style.position = 'fixed';
+  area.style.top = '0';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  area.setSelectionRange(0, text.length); // iOS ignores select() alone
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(area);
+  return ok;
 }
 
 /**
