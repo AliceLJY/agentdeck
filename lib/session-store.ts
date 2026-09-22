@@ -10,6 +10,9 @@ interface SessionMeta {
    * transcript file instead of creating a new one, so discovery must know
    * this — including after a server restart. */
   resumeSessionId?: string | null;
+  /** The id the CLI's own resume accepts for this session's conversation,
+   *  kept so it survives the process (see TerminalManager.setTranscriptId). */
+  transcriptId?: string | null;
 }
 
 const HOME = process.env.HOME || '/Users/USER';

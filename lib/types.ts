@@ -29,7 +29,14 @@ export type ServerMessage =
   | { type: 'sessions'; list: SessionInfo[] }
   | { type: 'taken_over' }
   | { type: 'history_cleared' }
-  | { type: 'session_dead'; sessionId: string; resumeSessionId: string | null }
+  | {
+      type: 'session_dead';
+      sessionId: string;
+      resumeSessionId: string | null;
+      backend: HistoryBackend;
+      /** The id the CLI's own resume accepts; null if it never wrote a transcript. */
+      transcriptId: string | null;
+    }
   | { type: 'resume_held'; holderPid: number }
   | { type: 'chat_init'; sessionId: string; state: ChatClaimState; messages: ChatMessage[]; meta: TranscriptMeta; truncated: boolean }
   | { type: 'chat_event'; sessionId: string; upserts: ChatMessage[]; meta?: TranscriptMeta }
@@ -42,6 +49,9 @@ export interface SessionInfo {
   title: string;
   cwd: string;
   resumeSessionId?: string | null;
+  /** The id the CLI's own resume accepts for the conversation this session is
+   *  writing — known once its transcript is claimed (or up front on resume). */
+  transcriptId?: string | null;
   createdAt: number;
   lastActivity: number;
   attached: boolean;          // true if a WS is currently attached

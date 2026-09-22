@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import {
   TerminalManager,
+  type TerminalManagerStore,
   backendExecutableCandidates,
   findResumeHolder,
   stripTerminalNoise,
@@ -221,4 +222,48 @@ test('cleanupIdle still reclaims a recovered session that has been quiet past ID
   const { left, killed } = await sweepAfter(null);
   assert.equal(killed, true);
   assert.equal(left, 0);
+});
+
+// The resume id TranscriptHub reads off a claimed transcript has to outlive
+// the process: a recovered entry whose tmux is gone reports it in session_dead,
+// so the viewer can print it for a later `/resume <id>` or history search.
+test('setTranscriptId persists the id and session_dead hands it back', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'agentdeck-dead-'));
+  const bin = path.join(dir, 'tmux');
+  writeFileSync(bin, [
+    '#!/bin/sh',
+    'case "$*" in',
+    '  *has-session*) exit 1 ;;',
+    '  *list-sessions*) echo "ccrt-job" ;;',
+    '  *list-panes*) echo "0" ;;',
+    '  *display-message*) echo "/tmp" ;;',
+    'esac',
+    'exit 0',
+    '',
+  ].join('\n'));
+  chmodSync(bin, 0o755);
+  const saved: Array<Parameters<TerminalManagerStore['save']>[1]> = [];
+  const store: TerminalManagerStore = {
+    loadAll: () => ({ job: { backend: 'claude', title: 't', createdAt: 1 } }),
+    remove: () => {},
+    save: (_id, meta) => { saved.push(meta); },
+    updateTitle: () => {},
+  };
+  const manager = new TerminalManager({ tmuxPath: bin, store, startCleanupTimer: false, home: dir });
+  try {
+    await manager.init();
+    manager.setTranscriptId('job', '3f012c13-213b-4581-a639-91d35be9595b');
+    assert.equal(saved.at(-1)?.transcriptId, '3f012c13-213b-4581-a639-91d35be9595b');
+    assert.equal(manager.list()[0].transcriptId, '3f012c13-213b-4581-a639-91d35be9595b');
+
+    const sent: string[] = [];
+    const ws = { send: (data: string) => { sent.push(data); } };
+    await manager.attach('job', ws as unknown as Parameters<TerminalManager['attach']>[1]);
+    const dead = JSON.parse(sent[0]);
+    assert.equal(dead.type, 'session_dead');
+    assert.equal(dead.backend, 'claude');
+    assert.equal(dead.transcriptId, '3f012c13-213b-4581-a639-91d35be9595b');
+  } finally {
+    manager.destroy();
+  }
 });

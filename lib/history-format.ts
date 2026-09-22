@@ -17,6 +17,13 @@ export function formatRelative(value: string): string {
   return new Intl.DateTimeFormat([], { month: 'short', day: 'numeric' }).format(new Date(time));
 }
 
+/** Eight characters to recognise a conversation id by. kimi's ids all start
+ *  with "session_", so its first eight would be the same for every session —
+ *  skip that prefix for display. Copy the full id, never this. */
+export function shortTranscriptId(id: string): string {
+  return id.replace(/^session_/, '').slice(0, 8);
+}
+
 export function formatTranscriptMessageBlock(message: ClaudeTranscriptMessage): string {
   const timestamp = formatTimestamp(message.timestamp);
   const header = timestamp ? `${message.role.toUpperCase()} ${timestamp}` : message.role.toUpperCase();

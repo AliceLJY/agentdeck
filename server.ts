@@ -13,6 +13,10 @@ import { authorizeAndNotify, deviceStore, displayIp, PEER_HEADER } from './lib/d
 import { applyFailureDelay, failureCount, globalThrottle } from './lib/auth-throttle';
 
 const terminalManager = new TerminalManager();
+// Keep each session's resume id on its record so it outlives the process:
+// the dead-session notice prints it once the CLI is gone.
+transcriptHub.onTranscriptId((sessionId, transcriptId) =>
+  terminalManager.setTranscriptId(sessionId, transcriptId));
 
 // Prefix all server logs with an ISO timestamp for easier production debugging.
 const LOG_LEVELS: Array<'log' | 'warn' | 'error'> = ['log', 'warn', 'error'];

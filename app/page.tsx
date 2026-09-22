@@ -11,11 +11,13 @@ import TerminalKeyBar from '@/components/TerminalKeyBar';
 import FileUpload from '@/components/FileUpload';
 import DropZone from '@/components/DropZone';
 import ChatView from '@/components/ChatView';
+import CopyButton from '@/components/CopyButton';
 import NewSessionPanel from '@/components/NewSessionPanel';
 import { useTheme } from '@/hooks/useTheme';
 import { useTerminalSessions } from '@/hooks/useTerminalSessions';
 import { getBackendDisplay, normalizeBackend, type HistoryBackend } from '@/lib/backends';
 import { checkDeviceAccess, terminalWsUrl, type AccessState } from '@/lib/device-client';
+import { shortTranscriptId } from '@/lib/history-format';
 import type {
   SessionInfo,
   SessionStatus,
@@ -418,6 +420,9 @@ export default function Home() {
     activeSession?.title ||
     'AgentDeck';
   const isRealSession = Boolean(activeSessionId && !activeSessionId.startsWith('__new__'));
+  // The id this conversation's own CLI resumes by — shown so it can be taken
+  // elsewhere (a Claude Code `/resume <id>`, the history search, another device).
+  const activeTranscriptId = (activeSessionId && statuses[activeSessionId]?.transcriptId) || null;
   // Chat is the default view — smooth scrolling is the whole point; the
   // terminal stays one tap away for TUI-only interactions.
   const activeView: 'chat' | 'term' = isRealSession
@@ -522,6 +527,15 @@ export default function Home() {
           <span className="ml-2 text-sm font-medium truncate flex-1 text-gray-700 dark:text-gray-200">
             {activeTitle}
           </span>
+          {isRealSession && activeTranscriptId && (
+            /* Eight characters to recognise it by; the full id goes to the
+               clipboard for `/resume <id>` or the history search. */
+            <CopyButton
+              getText={() => activeTranscriptId}
+              label={shortTranscriptId(activeTranscriptId)}
+              className="mr-1 shrink-0 font-mono"
+            />
+          )}
           {isRealSession && (
             <div className="mr-2 shrink-0 flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden text-xs font-medium">
               <button

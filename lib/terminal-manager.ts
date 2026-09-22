@@ -18,6 +18,7 @@ import {
   DEFAULT_COLS,
   DEFAULT_ROWS,
   TerminalCreateOptions,
+  type ServerMessage,
 } from './types';
 
 /** All our tmux sessions use a dedicated socket to avoid polluting user's tmux.
@@ -89,6 +90,9 @@ interface TerminalSession {
   tmuxName: string;
   cwd: string;
   resumeSessionId: string | null;
+  /** The id the CLI's own resume accepts for the conversation this session is
+   *  writing: the resume target up front, then whatever TranscriptHub claims. */
+  transcriptId: string | null;
   pty: pty.IPty | null;          // null when recovered but client hasn't attached yet
   ws: WebSocket | null;
   streamOutput: boolean;
@@ -173,6 +177,7 @@ export class TerminalManager {
           tmuxName,
           cwd: paneCwd || this.home,
           resumeSessionId: meta?.resumeSessionId || null,
+          transcriptId: meta?.transcriptId || meta?.resumeSessionId || null,
           pty: null,
           ws: null,
           streamOutput: false,
@@ -290,6 +295,7 @@ export class TerminalManager {
       tmuxName,
       cwd,
       resumeSessionId: resumeId,
+      transcriptId: resumeId,
       pty: ptyProcess,
       ws: null,
       streamOutput: false,
@@ -309,12 +315,7 @@ export class TerminalManager {
 
     this.setupPtyHandlers(session);
     this.sessions.set(id, session);
-    this.store.save(id, {
-      backend: session.backend,
-      title: session.title,
-      createdAt: now,
-      resumeSessionId: resumeId,
-    });
+    this.persist(session);
 
     console.log(`[agentdeck] Created: ${id} (${backend}) → tmux:${tmuxName} cwd=${cwd}${holderPid ? ' [agents-picker fallback]' : ''} (${this.sessions.size}/${MAX_SESSIONS})`);
     return this.toSessionInfo(session);
@@ -340,7 +341,9 @@ export class TerminalManager {
           type: 'session_dead',
           sessionId: session.id,
           resumeSessionId: session.resumeSessionId || null,
-        }));
+          backend: session.backend,
+          transcriptId: session.transcriptId,
+        } satisfies ServerMessage));
       } catch {}
       session.alive = false;
       this.store.remove(session.id);
@@ -497,6 +500,25 @@ export class TerminalManager {
     session.alive = false;
     this.store.remove(sessionId);
     this.sessions.delete(sessionId);
+  }
+
+  /** Record the resume id TranscriptHub read off the claimed transcript, so it
+   *  is still known after the process dies (idle reclaim, reboot, exit). */
+  setTranscriptId(sessionId: string, transcriptId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.transcriptId === transcriptId) return;
+    session.transcriptId = transcriptId;
+    this.persist(session);
+  }
+
+  private persist(session: TerminalSession): void {
+    this.store.save(session.id, {
+      backend: session.backend,
+      title: session.title,
+      createdAt: session.createdAt,
+      resumeSessionId: session.resumeSessionId,
+      transcriptId: session.transcriptId,
+    });
   }
 
   list(): SessionInfo[] {
@@ -680,7 +702,7 @@ export class TerminalManager {
   private toSessionInfo(s: TerminalSession): SessionInfo {
     return {
       id: s.id, backend: s.backend, title: s.title, cwd: s.cwd,
-      resumeSessionId: s.resumeSessionId, createdAt: s.createdAt,
+      resumeSessionId: s.resumeSessionId, transcriptId: s.transcriptId, createdAt: s.createdAt,
       lastActivity: s.lastActivity, attached: s.ws !== null, alive: s.alive,
     };
   }

@@ -605,9 +605,12 @@ const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 // The tmux behind this entry is long gone — no process to
                 // attach. Print why instead of bouncing home, and reuse the
                 // lastWords contract so the page stays put for reading.
-                const hint = msg.resumeSessionId
-                  ? `\r\n\x1b[33m[这个会话已经结束（tmux 已回收），条目已从活跃列表移除。\r\n 对话记录还在：回到首页，从历史列表里找到它可以重开（记录 ${msg.resumeSessionId.slice(0, 8)}…）。]\x1b[0m\r\n`
-                  : '\r\n\x1b[33m[这个会话已经结束（tmux 已回收），条目已从活跃列表移除。\r\n 它的对话记录仍可在首页历史列表里查看。]\x1b[0m\r\n';
+                // The conversation outlives the process: print its full id.
+                const hint = msg.transcriptId
+                  ? `\r\n\x1b[33m[这个会话的进程已经收回，对话记录还在。回首页在历史里点 Resume 接着聊，\r\n 或者复制它的 ID：${msg.transcriptId}${
+                    msg.backend === 'claude' ? '\r\n 在任意 Claude Code 会话里输入 /resume 加这个 ID，也能直接切过去。' : ''
+                  }]\x1b[0m\r\n`
+                  : '\r\n\x1b[33m[这个会话的进程已经收回。它还没留下对话记录，没有可以接回的内容。]\x1b[0m\r\n';
                 term.write(hint);
                 onSessionExited?.(msg.sessionId, hint);
                 break;

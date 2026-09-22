@@ -8,7 +8,7 @@ import type {
   ClaudeHistorySession,
   ClaudeTranscript,
 } from '@/lib/history-index';
-import { formatRelative, formatTranscriptMessageBlock } from '@/lib/history-format';
+import { formatRelative, formatTranscriptMessageBlock, shortTranscriptId } from '@/lib/history-format';
 import {
   backendForNewTerminal,
   getBackendDisplay,
@@ -124,7 +124,9 @@ export default function HistoryHome({ token, onNewTerminal }: HistoryHomeProps) 
     const needle = query.trim().toLowerCase();
     if (!needle) return index.sessions;
     return index.sessions.filter((session) =>
-      `${session.backend} ${session.projectName} ${session.cwd} ${session.preview} ${session.lastMessagePreview}`
+      // The id is searchable too: paste one from a reclaimed session's notice
+      // (or another device) to find that conversation.
+      `${session.backend} ${session.projectName} ${session.cwd} ${session.preview} ${session.lastMessagePreview} ${session.sessionId}`
         .toLowerCase()
         .includes(needle),
     );
@@ -377,6 +379,7 @@ function SessionRow({
         <div className="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <span className="truncate">{session.projectName}</span>
           <span className="shrink-0">{session.messageCount}</span>
+          <span className="shrink-0 font-mono text-gray-400 dark:text-gray-500">{shortTranscriptId(session.sessionId)}</span>
         </div>
       </button>
       {/* Archived transcripts have no live session behind them — `codex resume`
@@ -482,7 +485,16 @@ function TranscriptPane({
             <BackendBadge backend={session.backend} />
             {session.archived && <ArchivedBadge />}
           </div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{session.cwd}</div>
+          <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+            <span className="truncate">{session.cwd}</span>
+            {/* Full id on the clipboard: paste it into a Claude Code session's
+                `/resume <id>`, or into the search box here. */}
+            <CopyButton
+              getText={() => session.sessionId}
+              label={`ID ${shortTranscriptId(session.sessionId)}`}
+              className="shrink-0 font-mono"
+            />
+          </div>
         </div>
         {session.archived ? (
           <span className="shrink-0 px-3 py-2 text-xs text-gray-400 dark:text-gray-500">

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatTranscriptMessageBlock } from './history-format';
+import { formatTranscriptMessageBlock, shortTranscriptId } from './history-format';
+
+test('shortTranscriptId shows eight recognisable characters, skipping kimi’s shared prefix', () => {
+  assert.equal(shortTranscriptId('3f012c13-213b-4581-a639-91d35be9595b'), '3f012c13');
+  assert.equal(shortTranscriptId('session_a5c31249-7e55-4638-96d7-b1cf1362cdd3'), 'a5c31249');
+});
 
 test('formats transcript messages as readable log blocks', () => {
   const block = formatTranscriptMessageBlock({

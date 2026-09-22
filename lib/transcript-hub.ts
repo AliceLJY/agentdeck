@@ -3,6 +3,7 @@ import { watch, createReadStream, type FSWatcher } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { TranscriptParser } from './transcript-parser';
 import { discoverTranscript, type DiscoveryTarget, type DiscoveryRoots } from './session-discovery';
+import { transcriptIdFromPath } from './transcript-id';
 import type { ChatClaimState, ChatMessage, SessionStatus } from './types';
 
 /**
@@ -35,6 +36,8 @@ interface Tracked {
   target: DiscoveryTarget;
   state: ChatClaimState;
   filePath: string | null;
+  /** The id the CLI's own resume accepts, read off filePath at claim time. */
+  transcriptId: string | null;
   parser: TranscriptParser | null;
   offset: number;
   carry: string;
@@ -57,8 +60,16 @@ export class TranscriptHub {
   private lastStatusJson = '';
   private roots: DiscoveryRoots;
 
+  private transcriptIdListener: ((sessionId: string, transcriptId: string) => void) | null = null;
+
   constructor(roots: DiscoveryRoots = {}) {
     this.roots = roots;
+  }
+
+  /** Told once per claim, so the terminal side can persist the id and hand it
+   *  back after the process is gone (reclaimed, rebooted, exited). */
+  onTranscriptId(listener: (sessionId: string, transcriptId: string) => void): void {
+    this.transcriptIdListener = listener;
   }
 
   // ─── Session lifecycle (driven by ws-handler / server startup) ───
@@ -70,6 +81,7 @@ export class TranscriptHub {
       target,
       state: 'pending',
       filePath: null,
+      transcriptId: null,
       parser: null,
       offset: 0,
       carry: '',
@@ -193,7 +205,9 @@ export class TranscriptHub {
     t.offset = 0;
     t.carry = '';
     t.state = 'claimed';
+    t.transcriptId = transcriptIdFromPath(t.target.backend, filePath);
     console.log(`[agentdeck] Transcript claimed: ${t.sessionId} → ${filePath}`);
+    if (t.transcriptId) this.transcriptIdListener?.(t.sessionId, t.transcriptId);
 
     await this.readIncremental(t, { silent: true }); // backfill history without spamming chat_event
 
@@ -329,7 +343,9 @@ export class TranscriptHub {
         lastReplyPreview: t.lastReplyPreview,
         model: t.parser?.meta.model,
         aiTitle: t.parser?.meta.aiTitle,
-        transcriptId: t.parser?.meta.transcriptId,
+        // From the path first: it works for all four backends, while the
+        // parser can read an id out of the contents only for claude and codex.
+        transcriptId: t.transcriptId ?? t.parser?.meta.transcriptId,
       } satisfies SessionStatus;
     });
   }
