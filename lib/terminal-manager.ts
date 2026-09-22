@@ -747,6 +747,10 @@ export class TerminalManager {
       // every server restart. tmux keeps its own clock: window_activity moves
       // on pane output with no client attached (session_activity does not, it
       // only moves on client input — both checked on tmux 3.7b, 2026-09-21).
+      // 2026-09-22: with a live PTY bridge every byte of output refreshes
+      // lastActivity, and a TUI that repaints while idle (Claude Code's
+      // statusline) never trips this timer — such sessions are reclaimed by
+      // reboot, not here. Intentional; see IDLE_TIMEOUT in types.ts.
       if (!s.pty) s.lastActivity = Math.max(s.lastActivity, this.tmuxWindowActivityMs(s.tmuxName));
       if ((now - s.lastActivity) > IDLE_TIMEOUT) {
         console.log(`[agentdeck] Cleaning up idle session: ${id}`);

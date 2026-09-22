@@ -157,6 +157,13 @@ export interface TerminalSessionState {
 // ─── Constants ───
 
 export const MAX_SESSIONS = 10;
+/** Idle-reclaim threshold checked by TerminalManager.cleanupIdle(). It only
+ *  fires when a pane goes completely silent: every byte of PTY output
+ *  refreshes lastActivity, and Claude Code's TUI repaints (statusline) even
+ *  when nobody is typing, so a parked claude session lives until the next
+ *  reboot (measured 2026-09-22: idle 10 h, never reclaimed). Kept on purpose:
+ *  gating on keystrokes would re-open the "busy CLI killed at 30 min" bug
+ *  fixed in 5a5d838. */
 export const IDLE_TIMEOUT = 30 * 60 * 1000;       // 30 minutes
 export const RING_BUFFER_SIZE = 5 * 1024 * 1024;   // 5MB — covers full TUI history for cross-device replay
 export const DEFAULT_COLS = 80;
