@@ -502,6 +502,13 @@ function TranscriptPane({
           <LoadingRows />
         ) : transcript ? (
           <div className="space-y-3 pb-8">
+            {transcript.omittedCount > 0 && (
+              <p className="text-center text-xs text-gray-400 dark:text-gray-500">
+                Showing the latest {transcript.messages.length} of{' '}
+                {transcript.messages.length + transcript.omittedCount} messages — the earliest{' '}
+                {transcript.omittedCount} are not loaded.
+              </p>
+            )}
             {transcript.messages.map((message) => (
               <div key={message.id} className="relative">
                 <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-gray-200 bg-gray-50 py-2 pl-3 pr-11 font-mono text-[13px] leading-relaxed text-gray-800 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-100">

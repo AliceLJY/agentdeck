@@ -568,4 +568,46 @@ test('indexes Kimi wire logs, joining streamed parts and dropping reasoning', as
       ['assistant', 'kimi answer'],
     ],
   );
+  assert.equal(transcript.omittedCount, 0);
+});
+
+// kimi and agy keep only the latest MAX_HISTORY_MESSAGES (500). Until
+// 2026-09-22 the history view showed that tail with no hint that the head of
+// the conversation was missing — a long session looked complete.
+test('readKimiTranscript says how many early messages the 500-message cap left out', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ccrt-kimi-cap-'));
+  const sessionsRoot = join(root, 'sessions');
+  const sessionId = 'session_99999999-2222-3333-4444-555555555555';
+  const sessionDir = join(sessionsRoot, 'wd_app_cap', sessionId);
+  const wireDir = join(sessionDir, 'agents', 'main');
+  const indexFile = join(root, 'session_index.jsonl');
+  await mkdir(wireDir, { recursive: true });
+  await writeFile(indexFile, jsonl([{ sessionId, sessionDir, workDir: '/Users/alice/Projects/kimi-cap' }]));
+
+  // 300 turns = 600 messages, 100 over the cap.
+  const events: unknown[] = [{ type: 'metadata', protocol_version: '1.4', created_at: 1785000000000 }];
+  for (let i = 0; i < 300; i++) {
+    const t = 1785000001000 + i * 10;
+    events.push(
+      { type: 'context.append_message', message: { role: 'user', content: [{ type: 'text', text: `q${i}` }] }, time: t },
+      { type: 'context.append_loop_event', event: { type: 'content.part', part: { type: 'text', text: `a${i}` } }, time: t + 1 },
+      { type: 'context.append_loop_event', event: { type: 'step.end', finishReason: 'stop' }, time: t + 2 },
+    );
+  }
+  await writeFile(join(wireDir, 'wire.jsonl'), jsonl(events));
+
+  const index = await buildKimiHistoryIndex({ sessionsRootDir: sessionsRoot, indexFile, limit: 10 });
+  const transcript = await readKimiTranscript({
+    sessionsRootDir: sessionsRoot,
+    indexFile,
+    projectId: index.sessions[0].projectId,
+    sessionId,
+  });
+
+  assert.equal(transcript.messages.length, 500);
+  assert.equal(transcript.omittedCount, 100);
+  assert.equal(transcript.messages.length + transcript.omittedCount, transcript.session.messageCount);
+  // The tail is kept; the head is what goes missing.
+  assert.equal(transcript.messages[0].text, 'q50');
+  assert.equal(transcript.messages[499].text, 'a299');
 });

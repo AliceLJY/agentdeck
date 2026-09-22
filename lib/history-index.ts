@@ -40,6 +40,11 @@ export interface ClaudeTranscriptMessage {
 export interface ClaudeTranscript {
   session: ClaudeHistorySession;
   messages: ClaudeTranscriptMessage[];
+  /** Earliest messages left out of `messages` (0 = complete). Required, so a
+   *  reader that caps its output has to say so: kimi and agy keep only the
+   *  latest MAX_HISTORY_MESSAGES, and until 2026-09-22 the history view showed
+   *  that tail as if it were the whole conversation. */
+  omittedCount: number;
 }
 
 export interface ClaudeHistoryIndex {
@@ -353,6 +358,7 @@ async function parseAgySessionWithMessages(
       updatedAt: new Date(Math.max(lastTimeMs, createdAtMs)).toISOString(),
     },
     messages: trimmed,
+    omittedCount: messages.length - trimmed.length,
   };
 }
 
@@ -557,9 +563,7 @@ export async function readClaudeTranscript(options: {
     filePath,
     mtimeMs: fileStat.mtimeMs,
   };
-  const { session, messages } = await parseSessionWithMessages(candidate);
-
-  return { session, messages };
+  return parseSessionWithMessages(candidate);
 }
 
 export async function buildCodexHistoryIndex(
@@ -829,6 +833,7 @@ async function parseKimiSessionWithMessages(
       updatedAt: new Date(Math.max(lastTimeMs, createdAtMs)).toISOString(),
     },
     messages: trimmed,
+    omittedCount: messages.length - trimmed.length,
   };
 }
 
@@ -1128,10 +1133,7 @@ async function readCwdFromFile(filePath: string): Promise<string | null> {
   return null;
 }
 
-async function parseSessionWithMessages(candidate: SessionCandidate): Promise<{
-  session: ClaudeHistorySession;
-  messages: ClaudeTranscriptMessage[];
-}> {
+async function parseSessionWithMessages(candidate: SessionCandidate): Promise<ClaudeTranscript> {
   const raw = await readFile(candidate.filePath, 'utf8');
   const messages: ParsedMessage[] = [];
   let cwd = '';
@@ -1205,16 +1207,14 @@ async function parseSessionWithMessages(candidate: SessionCandidate): Promise<{
       text: message.text,
       timestamp: message.timestamp,
     })),
+    omittedCount: 0,
   };
 }
 
 async function parseCodexSessionWithMessages(
   candidate: CodexSessionCandidate,
   indexEntries: Map<string, CodexIndexEntry>,
-): Promise<{
-  session: ClaudeHistorySession;
-  messages: ClaudeTranscriptMessage[];
-}> {
+): Promise<ClaudeTranscript> {
   const raw = await readFile(candidate.filePath, 'utf8');
   const messages: ParsedMessage[] = [];
   let cwd = '';
@@ -1301,6 +1301,7 @@ async function parseCodexSessionWithMessages(
       text: message.text,
       timestamp: message.timestamp,
     })),
+    omittedCount: 0,
   };
 }
 
