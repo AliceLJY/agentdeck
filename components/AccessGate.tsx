@@ -24,7 +24,7 @@ export default function AccessGate({ state, onRetry }: AccessGateProps) {
     },
     pending: {
       title: 'Waiting for approval',
-      body: 'This device is new, so it has been blocked and the owner has been notified. Approve it from the Telegram message, then reconnect.',
+      body: 'This device is new, so it has been blocked and the owner has been notified. Approve it from the Telegram message, or with npm run device on the Mac; this page continues on its own once approved.',
       hint: 'If you did not expect this message, someone else is holding your access token — rotate it.',
     },
     revoked: {

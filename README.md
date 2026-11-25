@@ -116,7 +116,7 @@ Open `http://localhost:3109` in your browser, then:
 
 1. **Paste the token.** The login prompt wants the token you just wrote to `.env.local`. Print it with `sed -n 's/^AGENTDECK_TOKEN=//p' .env.local` (on macOS, add `| pbcopy` to copy it without printing) and paste it in. The token is saved in that browser. `npm run token:copy` does not help here: it reads the launchd token file from [Auto-start](#auto-start-macos-launchd), not `.env.local`.
 2. **Approve this browser.** A correct token is not enough; the first browser also waits for approval (see [Devices](#devices)). Without Telegram configured, the server log prints its device id in a `Blocked unknown device <id>` line. In a second terminal in the same folder, run `npm run device` to list waiting devices, then `npm run device -- <id>`. The waiting page lets itself in within a few seconds.
-3. **Open a terminal.** The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Kimi / Agy / Codex filter selects which backend new terminals start with.
+3. **Open a terminal.** On the home screen, pick a backend with the All / CC / Kimi / Agy / Codex filter and press the "+" at the top right: it starts a session on that backend (it opens in Chat view; switch to Term for the terminal). The sidebar's "+ New Terminal" opens a "Start a new session" form instead, where you choose the backend yourself (Claude by default).
 
 ### Upgrade from v0.2.1
 

@@ -111,7 +111,7 @@ npm start
 
 1. **粘贴 token。** 登录框要的是刚写进 `.env.local` 的 token。用 `sed -n 's/^AGENTDECK_TOKEN=//p' .env.local` 打印出来（macOS 上在末尾加 `| pbcopy` 可以只复制不打印），粘进登录框。token 会存在当前浏览器里。`npm run token:copy` 在这里用不上：它读的是[开机自启](#开机自启macos-launchd)里 launchd 用的 token 文件，不读 `.env.local`。
 2. **批准这个浏览器。** token 对了还不够，第一个浏览器也要等批准（见[设备管理](#设备管理)）。没配 Telegram 时，服务端日志里会有一行 `Blocked unknown device <id>`，给出它的设备 id。在同一个目录另开一个终端，先跑 `npm run device` 看等待中的设备，再跑 `npm run device -- <id>`。等待中的页面几秒内会自己进去。
-3. **开终端。** 侧边栏 "+" 按钮新建终端；在首页用 All / CC / Kimi / Agy / Codex 筛选切换新终端使用的后端。
+3. **开终端。** 在首页用 All / CC / Kimi / Agy / Codex 筛选选好后端，点右上角的 "+"，就按这个后端新建会话（默认打开 Chat 视图，切到 Term 才是终端）。侧边栏的 "+ New Terminal" 打开的是「Start a new session」表单，后端在表单里自己选（默认 Claude）。
 
 ### 从 v0.2.1 升级
 
