@@ -92,8 +92,9 @@ Browser (any device)          Server (your Mac)
   - [Antigravity CLI](https://antigravity.google) (`agy`) — looked up at `/opt/homebrew/bin/agy`, `/usr/local/bin/agy`, `~/.local/bin/agy`
 
   You can install only one if you only need that backend; the UI will just fail to spawn the missing one.
+  If none of the listed paths exists, the server falls back to whichever `claude` / `codex` / `kimi` / `agy` is on your `PATH`.
 
-- macOS (node-pty prebuilds are darwin-arm64; Linux should also work with rebuild)
+- macOS (node-pty ships prebuilt binaries for darwin-arm64 and darwin-x64). Linux also works: `npm install` compiles node-pty from source by itself, which needs a C/C++ toolchain (`build-essential` on Debian/Ubuntu); there is no separate rebuild step.
 
 ### Install & Run
 
@@ -111,7 +112,11 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3109` in your browser and paste the token into the login prompt. The token is saved in that browser. The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Kimi / Agy / Codex filter selects which backend new terminals start with.
+Open `http://localhost:3109` in your browser, then:
+
+1. **Paste the token.** The login prompt wants the token you just wrote to `.env.local`. Print it with `sed -n 's/^AGENTDECK_TOKEN=//p' .env.local` (on macOS, add `| pbcopy` to copy it without printing) and paste it in. The token is saved in that browser. `npm run token:copy` does not help here: it reads the launchd token file from [Auto-start](#auto-start-macos-launchd), not `.env.local`.
+2. **Approve this browser.** A correct token is not enough; the first browser also waits for approval (see [Devices](#devices)). Without Telegram configured, the server log prints its device id in a `Blocked unknown device <id>` line. In a second terminal in the same folder, run `npm run device` to list waiting devices, then `npm run device -- <id>`. The waiting page lets itself in within a few seconds.
+3. **Open a terminal.** The sidebar's "+" button creates a new terminal; on the home screen, the All / CC / Kimi / Agy / Codex filter selects which backend new terminals start with.
 
 ### Upgrade from v0.2.1
 

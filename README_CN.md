@@ -87,8 +87,9 @@
   - [Antigravity CLI](https://antigravity.google)（`agy`）— 查找路径：`/opt/homebrew/bin/agy`、`/usr/local/bin/agy`、`~/.local/bin/agy`
 
   只装一个也行，UI 只是创建对应缺失 backend 的 session 时会报错。
+  上面列的路径都不存在时，服务端会退回去用 `PATH` 上的 `claude` / `codex` / `kimi` / `agy`。
 
-- macOS（node-pty 预编译为 darwin-arm64；Linux 需重新编译）
+- macOS（node-pty 自带 darwin-arm64 和 darwin-x64 预编译）。Linux 也能用：`npm install` 会自动从源码编译 node-pty，需要本机有 C/C++ 编译工具（Debian/Ubuntu 上是 `build-essential`），不需要另外手动重新编译。
 
 ### 安装运行
 
@@ -106,7 +107,11 @@ npm run build
 npm start
 ```
 
-浏览器打开 `http://localhost:3109`，在登录框粘贴 token。token 会存在当前浏览器里。侧边栏 "+" 按钮新建终端；在首页用 All / CC / Kimi / Agy / Codex 筛选切换新终端使用的后端。
+浏览器打开 `http://localhost:3109`，然后：
+
+1. **粘贴 token。** 登录框要的是刚写进 `.env.local` 的 token。用 `sed -n 's/^AGENTDECK_TOKEN=//p' .env.local` 打印出来（macOS 上在末尾加 `| pbcopy` 可以只复制不打印），粘进登录框。token 会存在当前浏览器里。`npm run token:copy` 在这里用不上：它读的是[开机自启](#开机自启macos-launchd)里 launchd 用的 token 文件，不读 `.env.local`。
+2. **批准这个浏览器。** token 对了还不够，第一个浏览器也要等批准（见[设备管理](#设备管理)）。没配 Telegram 时，服务端日志里会有一行 `Blocked unknown device <id>`，给出它的设备 id。在同一个目录另开一个终端，先跑 `npm run device` 看等待中的设备，再跑 `npm run device -- <id>`。等待中的页面几秒内会自己进去。
+3. **开终端。** 侧边栏 "+" 按钮新建终端；在首页用 All / CC / Kimi / Agy / Codex 筛选切换新终端使用的后端。
 
 ### 从 v0.2.1 升级
 
